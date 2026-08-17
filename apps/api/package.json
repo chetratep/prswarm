@@ -1,0 +1,34 @@
+{
+  "name": "@bulk-github-update-tool/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "@fastify/secure-session": "^8.0.0",
+    "@fastify/static": "^8.0.0",
+    "@octokit/auth-app": "^7.0.0",
+    "@octokit/rest": "^21.0.0",
+    "bcryptjs": "^2.4.3",
+    "diff": "^7.0.0",
+    "dotenv": "^16.4.0",
+    "p-limit": "^6.0.0",
+    "zod": "^3.23.0",
+    "@bulk-github-update-tool/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/diff": "^5.2.0"
+  }
+}
