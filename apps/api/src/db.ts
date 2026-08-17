@@ -1,47 +1,31 @@
 // SQLite setup: opens the database file (creating its parent directory if
 // needed) and runs idempotent CREATE TABLE IF NOT EXISTS migrations for the
-// full v1 schema. Only `connections` has read/write logic elsewhere in this
-// pass — the other four tables are created now so the schema is settled,
-// but no routes touch them yet.
+// full schema.
 //
-// Uses Node's built-in node:sqlite rather than better-sqlite3: this repo's
-// whole stack pitch is "no native toolchain to stand up" (see CLAUDE.md), and
-// better-sqlite3 needs a working Python + C++ build chain to compile from
-// source whenever no prebuilt binary matches the local Node ABI — exactly
-// the kind of self-host friction the project is trying to avoid. node:sqlite
-// ships in the Node binary itself, so there's nothing to compile at all.
-import { DatabaseSync } from "node:sqlite";
+// Uses bun:sqlite rather than better-sqlite3: this repo's whole stack pitch
+// is "no native toolchain to stand up" (see CLAUDE.md), and better-sqlite3
+// needs a working Python + C++ build chain to compile from source whenever
+// no prebuilt binary matches. bun:sqlite ships in the Bun binary itself, so
+// there's nothing to compile at all — and unlike node:sqlite (used before
+// this migration), it has a native `.transaction()` method, so callers no
+// longer need a hand-rolled BEGIN/COMMIT/ROLLBACK wrapper.
+import { Database } from "bun:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
-export type AppDatabase = DatabaseSync;
+export type AppDatabase = Database;
 
 export function openDatabase(databasePath: string): AppDatabase {
   const dir = path.dirname(databasePath);
   fs.mkdirSync(dir, { recursive: true });
 
-  const db = new DatabaseSync(databasePath);
+  const db = new Database(databasePath);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA foreign_keys = ON;");
 
   runMigrations(db);
 
   return db;
-}
-
-/** node:sqlite has no `.transaction()` helper (unlike better-sqlite3) — wrap
- * manually. Synchronous, matching the synchronous nature of everything else
- * in this module. */
-export function runInTransaction<T>(db: AppDatabase, fn: () => T): T {
-  db.exec("BEGIN");
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
 }
 
 function runMigrations(db: AppDatabase): void {
@@ -109,13 +93,6 @@ function runMigrations(db: AppDatabase): void {
     );
   `);
 
-  // `CREATE TABLE IF NOT EXISTS` above is a no-op against a repo_runs table
-  // that already exists from before this column was added — it will not
-  // retroactively add rendered_content. Guard with PRAGMA table_info and
-  // ALTER TABLE only when the column is actually missing, so this stays safe
-  // to run on both a fresh DB (column already present from the CREATE TABLE
-  // above) and an existing DB with real data (column added once, then this
-  // becomes a no-op on every subsequent startup).
   const repoRunsColumns = db.prepare(`PRAGMA table_info(repo_runs)`).all() as Array<{
     name: string;
   }>;

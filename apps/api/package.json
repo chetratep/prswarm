@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "bun --watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js",
-    "test": "vitest run"
+    "start": "bun src/index.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "fastify": "^5.0.0",
@@ -25,10 +25,10 @@
   },
   "devDependencies": {
     "typescript": "^5.6.3",
-    "tsx": "^4.19.0",
     "vitest": "^2.1.0",
     "@types/node": "^22.0.0",
     "@types/bcryptjs": "^2.4.6",
-    "@types/diff": "^5.2.0"
+    "@types/diff": "^5.2.0",
+    "@types/bun": "latest"
   }
 }

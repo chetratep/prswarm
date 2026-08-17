@@ -3,7 +3,7 @@
 // transaction, so it's a real replace rather than accumulation.
 import { randomUUID } from "node:crypto";
 import type { Connection, ConnectionType } from "@bulk-github-update-tool/shared-types";
-import { runInTransaction, type AppDatabase } from "../db.js";
+import type { AppDatabase } from "../db.js";
 
 export interface ConnectionRow {
   id: string;
@@ -46,13 +46,13 @@ export function replaceWithPatConnection(db: AppDatabase, input: CreatePatConnec
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
-  runInTransaction(db, () => {
+  db.transaction(() => {
     db.prepare("DELETE FROM connections").run();
     db.prepare(
       `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(id, "PAT", input.login, null, null, input.encryptedToken, createdAt);
-  });
+  })();
 
   return {
     id,
@@ -79,13 +79,13 @@ export function replaceWithGithubAppConnection(
   const createdAt = new Date().toISOString();
   const installationId = String(input.installationId);
 
-  runInTransaction(db, () => {
+  db.transaction(() => {
     db.prepare("DELETE FROM connections").run();
     db.prepare(
       `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(id, "GITHUB_APP", input.login, input.appId, installationId, input.encryptedPrivateKeyPem, createdAt);
-  });
+  })();
 
   return {
     id,

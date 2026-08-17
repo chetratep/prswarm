@@ -18,7 +18,6 @@ import {
   type JobView,
 } from "@bulk-github-update-tool/shared-types";
 import type { AppDatabase } from "../db.js";
-import { runInTransaction } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { computeRepoRunPreview } from "../github/repoDiff.js";
 import {
@@ -114,7 +113,7 @@ export async function registerChangesetsRoutes(
       // isn't load-bearing here.
       const orgs = Array.from(new Set(targetRepos.map((full) => full.split("/")[0])));
 
-      const { job } = runInTransaction(db, () => {
+      const { job } = db.transaction(() => {
         const targetSelection = insertTargetSelection(db, {
           changeSetId: changeSet.id,
           orgs,
@@ -132,7 +131,7 @@ export async function registerChangesetsRoutes(
         });
 
         return { job, targetSelection };
-      });
+      })();
 
       // Sequential, not concurrent (no pool yet — Phase 2). Each repo's
       // failure is captured into its own row by computeRepoRunPreview and
