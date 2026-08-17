@@ -22,9 +22,11 @@ import { registerGithubRoutes } from "./routes/github.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
 
-// apps/api/src (dev, via tsx) and apps/api/dist (after build) sit at the
-// same depth below the repo root, so the same relative path resolves env
-// correctly in both cases: src|dist -> api -> apps -> repo root.
+// Both `bun run dev`/`start` and the Dockerfile's CMD run this file
+// straight out of apps/api/src (Bun executes TypeScript directly, no build
+// step or dist/ output) — so there's only one case to resolve for, and
+// import.meta.dirname is always apps/api/src, three levels below the repo
+// root: src -> api -> apps -> repo root.
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
 dotenv.config({ path: path.resolve(repoRoot, ".env") });

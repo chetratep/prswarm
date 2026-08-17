@@ -13,3 +13,4 @@ data/
 coverage/
 .turbo/
 *.tsbuildinfo
+.serena/

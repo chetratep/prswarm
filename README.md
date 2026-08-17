@@ -20,6 +20,8 @@ packages/shared-types Types shared between web and api
 
 ## Getting started
 
+Requires [Bun](https://bun.sh) >= 1.3.14 (`curl -fsSL https://bun.sh/install | bash` on macOS/Linux).
+
 ```bash
 bun install
 cp .env.example .env
