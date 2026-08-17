@@ -5,8 +5,7 @@
   "license": "MIT",
   "workspaces": ["apps/*", "packages/*"],
   "engines": {
-    "bun": ">=1.3.14",
-    "node": ">=20"
+    "bun": ">=1.3.14"
   },
   "scripts": {
     "dev": "bun run --filter '*' dev",
