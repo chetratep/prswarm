@@ -21,11 +21,10 @@ packages/shared-types Types shared between web and api
 ## Getting started
 
 ```bash
-corepack enable
-pnpm install
+bun install
 cp .env.example .env
-# set ENCRYPTION_KEY in .env — see the comment above it in .env.example
-pnpm dev
+# Optional — ENCRYPTION_KEY now auto-generates on first run if left unset.
+bun run dev
 ```
 
 Web dev server: http://localhost:5173 (proxies `/api` to the backend on port 3000).

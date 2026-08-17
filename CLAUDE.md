@@ -18,7 +18,7 @@ Full 7-step Phase 1 MVP flow built and verified (2026-08-17): Connect → Select
 
 Verified two ways: (1) 12 stub-Octokit unit checks covering the diff/execute logic's judgment calls (new/modified/unchanged detection, 403-vs-404 branch-protection handling, create-only guard, skip-unchanged guard, PR overriding branchStrategy, error isolation) — no real GitHub credentials were available in the building session; (2) live browser walkthrough of every page against a running instance, using DB-seeded fixture data for Preview/Confirm/Results since a real PAT wasn't available to drive Connect for real.
 
-**To actually run it:** `cp .env.example .env`, set `ENCRYPTION_KEY` (see the comment in `.env.example` for the one-liner to generate it), `pnpm install`, `pnpm dev`.
+**To actually run it:** `bun install`, `cp .env.example .env` (`ENCRYPTION_KEY` is optional — auto-generated and persisted on first run if left unset), `bun run dev`.
 
 ## Phase 2 — Wave 1 (2026-08-17)
 
@@ -48,6 +48,15 @@ Built and verified **live against a real GitHub account** (not just stub tests t
 - **Writing to `.github/workflows/*` needs a permission GitHub checks separately from normal repo write access** — not a bug in this app, but worth documenting since it's the first thing anyone will hit testing with a workflow file: a classic PAT needs the `workflow` scope (sibling to `repo`), a fine-grained PAT needs "Workflows: Read and write" in addition to "Contents: Read and write". Without it, GitHub returns a plain 404 on `createOrUpdateFileContents`, not an obviously-scope-related error.
 - **Define form gives no feedback on why the button is disabled.** Fixed: every field is now marked `*` (required) or `(optional)`, and a live "Complete these to continue: …" checklist tracks exactly what's missing — including catching a real bug where `canSubmit` didn't account for PR title even though the input had `required`, so the button could look clickable while the browser silently blocked submission.
 
+## Runtime migration: Node.js → Bun (2026-08-18)
+
+The whole app — root workspace tooling, `apps/api`'s runtime and database layer, CI, and Docker — is migrated from Node.js/pnpm to Bun, and fully verified working (see the migration plan/spec pair under `.superpowers/sdd/2026-08-18-migrate-to-bun/` for rationale and the risk register). Real outcomes, where they differed from the plan's original guesses:
+
+- **`apps/api`'s `test` script is `bun test`, not `vitest run`.** `bun:sqlite` (which the database layer now uses natively, replacing `node:sqlite`) has no resolution path through Vitest's Vite-based module resolver. Bun's test runner has a compatibility layer that runs `import {...} from "vitest"`-style test files natively, so no test files needed rewriting — only the `package.json` script value changed.
+- **`@fastify/secure-session` needed no changes.** The spec flagged a risk that its native `sodium-native` dependency might not build/run under Bun; that did not materialize — it was verified working under Bun as-is, no fallback or replacement required.
+- **Bun does not hoist workspace-package symlinks into the root `node_modules/`** the way pnpm did — it places them per-consuming-workspace instead (e.g. `apps/api/node_modules/@bulk-github-update-tool/shared-types`). Mainly matters for the `Dockerfile` (already accounted for there); worth knowing if you're debugging a "package not found" error and expect a root-level symlink that isn't there.
+- Built and verified against **Bun 1.3.14** (`engines.bun` in the root `package.json`).
+
 ## Content editor + fetch-from-URL (2026-08-17)
 
 - **Editor**: the Define page's Content field is now `@uiw/react-codemirror` (CodeMirror 6 — the same engine GitHub's own web file editor uses) instead of a plain `<textarea>`, with language detection off the File path extension (`yml`/`yaml`, `json`, `md` — anything else falls back to plain text). Lazy-loaded (`React.lazy` + `Suspense` in `App.tsx`) since CodeMirror + language packages roughly quadrupled the JS bundle (230KB → 860KB minified) — splitting it into its own chunk keeps every other page at the original size and only pays that cost once someone reaches Define.
@@ -69,12 +78,14 @@ Built and verified **live against a real GitHub account** (not just stub tests t
 
 Picked specifically for "single-user, self-hosted" — no service to stand up besides the app itself.
 
+Runtime is **Bun**, not Node.js (migrated 2026-08-18 — see "Runtime migration" above for what actually happened, including the one real risk from the spec, `@fastify/secure-session`, which turned out fine as-is).
+
 | Layer | Choice |
 |---|---|
 | Frontend | React + TypeScript, Vite, TanStack Query, CodeMirror 6 (content editor) |
-| Backend | Node.js + TypeScript (Fastify), Octokit.js (REST + GitHub App JWT/installation tokens) |
+| Backend | Bun + TypeScript (Fastify), Octokit.js (REST + GitHub App JWT/installation tokens) |
 | Queue | In-process, concurrency-limited (`p-queue` or similar) — **no Redis** |
-| Datastore | SQLite via Node's built-in `node:sqlite` — **no Postgres, no extra dependency at all** — one file holds changesets, jobs, run history |
+| Datastore | SQLite via Bun's built-in `bun:sqlite` — **no Postgres, no extra dependency at all** — one file holds changesets, jobs, run history |
 | Realtime | Server-sent events for job progress (not WebSocket) |
 | Secrets | Envelope-encrypted PAT/PEM at rest, decrypted only inside the GitHub integration layer, never sent to the browser after entry |
 
@@ -82,7 +93,7 @@ Known tradeoff: an in-process queue means job state doesn't survive a killed pro
 
 ## Repo layout (planned)
 
-Monorepo, pnpm workspaces:
+Monorepo, Bun workspaces:
 
 ```
 apps/web              React frontend
