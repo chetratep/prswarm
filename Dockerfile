@@ -55,6 +55,14 @@ COPY --from=build /repo/apps/web/dist ./apps/api/public
 # separate web container/process, one thing to run.
 ENV PORT=3000
 ENV DATABASE_PATH=/app/data/app.db
+# If ENCRYPTION_KEY isn't passed in, secrets.ts falls back to a generated key
+# persisted under defaultDataDir() (apps/api/src/paths.ts), which on Linux
+# means $XDG_DATA_HOME/bulk-github-update-tool. Without this, that lands in
+# the container's ephemeral filesystem (root's default ~/.local/share) and
+# is lost on container replacement — the volume only covers DATABASE_PATH's
+# directory. Pointing XDG_DATA_HOME at the same mounted volume keeps a
+# generated key alongside the database, surviving container replacement.
+ENV XDG_DATA_HOME=/app/data
 VOLUME ["/app/data"]
 EXPOSE 3000
 
