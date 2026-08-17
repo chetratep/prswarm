@@ -4,15 +4,25 @@ import path from "node:path";
 import { defaultDataDir } from "./paths.js";
 
 const originalPlatform = process.platform;
+const originalXdgDataHome = process.env.XDG_DATA_HOME;
+const originalAppData = process.env.APPDATA;
 
 function setPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, "platform", { value: platform });
 }
 
+function restoreEnvVar(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
+
 afterEach(() => {
   setPlatform(originalPlatform);
-  delete process.env.XDG_DATA_HOME;
-  delete process.env.APPDATA;
+  restoreEnvVar("XDG_DATA_HOME", originalXdgDataHome);
+  restoreEnvVar("APPDATA", originalAppData);
 });
 
 describe("defaultDataDir", () => {
