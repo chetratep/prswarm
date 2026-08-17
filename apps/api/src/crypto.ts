@@ -1,43 +1,33 @@
 // AES-256-GCM encryption for secrets at rest (the PAT stored in
-// `connections.encrypted_token`). Key is derived from the ENCRYPTION_KEY env
-// var — separate from SESSION_SECRET, which only signs cookies. Never
-// silently no-ops: encrypt/decrypt (and the startup assertion) throw a clear
-// error if ENCRYPTION_KEY is missing or malformed.
+// `connections.encrypted_token`). Key resolution (env var, persisted file,
+// or first-run generation) lives in secrets.ts — this file stays pure
+// encrypt/decrypt logic.
 import crypto from "node:crypto";
+import { resolveEncryptionKey } from "./secrets.js";
+import { defaultDataDir } from "./paths.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH_BYTES = 12; // recommended IV length for GCM
 const AUTH_TAG_LENGTH_BYTES = 16;
 
+let cachedKey: Buffer | undefined;
+
 function getKey(): Buffer {
-  const raw = process.env.ENCRYPTION_KEY;
-
-  if (!raw) {
-    throw new Error(
-      "ENCRYPTION_KEY is not set. Generate one with " +
-        '`node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"` ' +
-        "and set it in your .env before the API can start."
-    );
+  if (!cachedKey) {
+    cachedKey = resolveEncryptionKey(defaultDataDir()).key;
   }
-
-  const key = /^[0-9a-fA-F]{64}$/.test(raw)
-    ? Buffer.from(raw, "hex")
-    : Buffer.from(raw, "base64");
-
-  if (key.length !== 32) {
-    throw new Error(
-      `ENCRYPTION_KEY must decode to exactly 32 bytes (got ${key.length}). ` +
-        "Use a 64-character hex string or a base64-encoded 32-byte value."
-    );
-  }
-
-  return key;
+  return cachedKey;
 }
 
-/** Validates ENCRYPTION_KEY eagerly so a misconfigured instance fails at
- * startup rather than the first time a connection is saved. */
+/** Resolves the encryption key eagerly (generating and persisting one on first
+ * run if none is configured) so a *malformed* key still fails fast at startup
+ * rather than the first time a connection is saved. */
 export function assertEncryptionKeyConfigured(): void {
-  getKey();
+  const resolved = resolveEncryptionKey(defaultDataDir());
+  cachedKey = resolved.key;
+  if (resolved.source === "generated") {
+    console.log(`Generated a new encryption key at ${resolved.filePath}`);
+  }
 }
 
 export function encrypt(plaintext: string): string {

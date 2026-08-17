@@ -13,6 +13,7 @@ import fastifyStatic from "@fastify/static";
 import { registerSession } from "./auth/session.js";
 import { assertEncryptionKeyConfigured } from "./crypto.js";
 import { openDatabase } from "./db.js";
+import { defaultDataDir } from "./paths.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChangesetsRoutes } from "./routes/changesets.js";
 import { registerConnectionsRoutes } from "./routes/connections.js";
@@ -31,12 +32,15 @@ dotenv.config({ path: path.resolve(repoRoot, ".env") });
 async function main(): Promise<void> {
   const authEnabled = process.env.AUTH_ENABLED === "true";
 
-  // Fail fast: an app that stores encrypted secrets should never boot with a
-  // missing/malformed encryption key, even before any connection exists.
+  // Resolves the encryption key eagerly (generating and persisting one on first
+  // run if none is configured) so a *malformed* key still fails fast at startup
+  // rather than the first time a connection is saved.
   assertEncryptionKeyConfigured();
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
-  const databasePath = path.resolve(repoRoot, process.env.DATABASE_PATH ?? "./data/app.db");
+  const databasePath = process.env.DATABASE_PATH
+    ? path.resolve(repoRoot, process.env.DATABASE_PATH)
+    : path.join(defaultDataDir(), "app.db");
 
   const db = openDatabase(databasePath);
 
