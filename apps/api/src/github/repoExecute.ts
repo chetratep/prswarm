@@ -57,29 +57,35 @@ export async function executeRepoRun(
 ): Promise<RepoRunUpdate> {
   const [owner, repo] = repoRun.repoFullName.split("/");
 
-  const changeSetFileById = new Map(changeSetFiles.map((f) => [f.id, f]));
-  const filesToCommit: FileToCommit[] = repoRunFiles.map((repoRunFile) => {
-    const changeSetFile = changeSetFileById.get(repoRunFile.changeSetFileId);
-    if (!changeSetFile) {
-      throw new Error(
-        `repo_run_file ${repoRunFile.id} references change_set_file ${repoRunFile.changeSetFileId}, which was not found`
-      );
-    }
-    return { repoRunFile, mode: changeSetFile.mode };
-  });
-
-  const nonSkippedFiles = filesToCommit.filter((file) => !isSkipped(file));
-
-  // All files skipped — nothing to commit, same semantics as a single-file
-  // skip, evaluated across all files first.
-  if (nonSkippedFiles.length === 0) {
-    return {
-      status: "SKIPPED",
-      errorMessage: null,
-    };
-  }
-
+  // Everything below — including the changeset-file lookup and the
+  // all-skipped early return — lives inside this one try/catch so this
+  // function truly never rejects: a malformed row (e.g. a repo_run_file
+  // referencing a change_set_file that doesn't exist) is just another
+  // failure mode, caught the same way a GitHub API error would be, and
+  // turned into a FAILED update rather than an unhandled rejection.
   try {
+    const changeSetFileById = new Map(changeSetFiles.map((f) => [f.id, f]));
+    const filesToCommit: FileToCommit[] = repoRunFiles.map((repoRunFile) => {
+      const changeSetFile = changeSetFileById.get(repoRunFile.changeSetFileId);
+      if (!changeSetFile) {
+        throw new Error(
+          `repo_run_file ${repoRunFile.id} references change_set_file ${repoRunFile.changeSetFileId}, which was not found`
+        );
+      }
+      return { repoRunFile, mode: changeSetFile.mode };
+    });
+
+    const nonSkippedFiles = filesToCommit.filter((file) => !isSkipped(file));
+
+    // All files skipped — nothing to commit, same semantics as a
+    // single-file skip, evaluated across all files first.
+    if (nonSkippedFiles.length === 0) {
+      return {
+        status: "SKIPPED",
+        errorMessage: null,
+      };
+    }
+
     // Refetch the default branch fresh — don't trust the preview-time
     // snapshot for the actual write, it may be stale.
     const { data: repoInfo } = await octokit.rest.repos.get({ owner, repo });

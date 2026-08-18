@@ -229,6 +229,21 @@ describe("executeRepoRun", () => {
     expect(calls).not.toContain("git.updateRef");
     expect(calls).not.toContain("git.createRef");
   });
+
+  it("resolves to FAILED (never rejects) when a repo_run_file references a change_set_file that doesn't exist", async () => {
+    const { octokit, calls } = makeOctokit();
+    const changeSetFile = stubChangeSetFile({ id: "file-a" });
+    // References "file-does-not-exist", which is not in changeSetFiles.
+    const repoRunFile = stubRepoRunFile({ changeSetFileId: "file-does-not-exist" });
+
+    const result = await executeRepoRun(octokit, stubChangeSet(), [changeSetFile], stubRepoRun(), [
+      repoRunFile,
+    ]);
+
+    expect(result.status).toBe("FAILED");
+    expect(result.errorMessage).toContain("file-does-not-exist");
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("slugify", () => {
