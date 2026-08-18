@@ -5,15 +5,20 @@ import type { GitHubOrgSummary, GitHubRepoSummary } from "@bulk-github-update-to
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { getCurrentConnectionRow, type ConnectionRow } from "../repositories/connectionsRepository.js";
+import { resolveCurrentUser } from "../auth/currentUser.js";
 import type { Octokit } from "@octokit/rest";
 
 export interface GithubRouteOptions {
   db: AppDatabase;
 }
 
-async function getOctokitOr400(db: AppDatabase, reply: FastifyReply): Promise<Octokit | undefined> {
+async function getOctokitOr400(
+  db: AppDatabase,
+  userId: string,
+  reply: FastifyReply
+): Promise<Octokit | undefined> {
   try {
-    return await loadOctokitForCurrentConnection(db);
+    return await loadOctokitForCurrentConnection(db, userId);
   } catch (err) {
     if (err instanceof NoConnectionError) {
       reply.code(400).send({ error: err.message });
@@ -57,10 +62,11 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
   const { db } = opts;
 
   app.get("/orgs", async (request, reply) => {
-    const octokit = await getOctokitOr400(db, reply);
+    const currentUser = resolveCurrentUser(request);
+    const octokit = await getOctokitOr400(db, currentUser.userId, reply);
     if (!octokit) return reply;
 
-    const connectionRow = getCurrentConnectionRow(db);
+    const connectionRow = getCurrentConnectionRow(db, currentUser.userId);
     const self = await resolveSelf(connectionRow, octokit);
 
     // A GitHub App connection is already bound to exactly one account (the
@@ -95,7 +101,8 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
     Params: { org: string };
     Querystring: { q?: string; language?: string; topic?: string; archived?: "true" | "false" };
   }>("/orgs/:org/repos", async (request, reply) => {
-    const octokit = await getOctokitOr400(db, reply);
+    const currentUser = resolveCurrentUser(request);
+    const octokit = await getOctokitOr400(db, currentUser.userId, reply);
     if (!octokit) return reply;
 
     const { org } = request.params;
@@ -104,7 +111,7 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
     const topic = request.query.topic?.trim().toLowerCase();
     const archived = request.query.archived;
 
-    const connectionRow = getCurrentConnectionRow(db);
+    const connectionRow = getCurrentConnectionRow(db, currentUser.userId);
 
     // Follow every page — orgs (and users) can have hundreds of repos and
     // "select all" depends on seeing the full list, not just page 1.

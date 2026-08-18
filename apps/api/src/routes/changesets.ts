@@ -20,6 +20,7 @@ import {
 } from "@bulk-github-update-tool/shared-types";
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
+import { resolveCurrentUser } from "../auth/currentUser.js";
 import { computeRepoRunPreview } from "../github/repoDiff.js";
 import {
   getChangeSetById,
@@ -36,9 +37,13 @@ export interface ChangesetsRouteOptions {
   db: AppDatabase;
 }
 
-async function getOctokitOr400(db: AppDatabase, reply: FastifyReply): Promise<Octokit | undefined> {
+async function getOctokitOr400(
+  db: AppDatabase,
+  userId: string,
+  reply: FastifyReply
+): Promise<Octokit | undefined> {
   try {
-    return await loadOctokitForCurrentConnection(db);
+    return await loadOctokitForCurrentConnection(db, userId);
   } catch (err) {
     if (err instanceof NoConnectionError) {
       reply.code(400).send({ error: err.message });
@@ -142,7 +147,8 @@ export async function registerChangesetsRoutes(
       }
       const { targetRepos, templateValues } = parsed.data;
 
-      const octokit = await getOctokitOr400(db, reply);
+      const currentUser = resolveCurrentUser(request);
+      const octokit = await getOctokitOr400(db, currentUser.userId, reply);
       if (!octokit) return reply;
 
       const orgs = Array.from(new Set(targetRepos.map((full) => full.split("/")[0])));
@@ -161,7 +167,7 @@ export async function registerChangesetsRoutes(
           changeSetId: changeSet.id,
           targetSelectionId: targetSelection.id,
           status: "PREVIEWING",
-          createdBy: "local",
+          createdBy: currentUser.userId,
         });
 
         return { job, targetSelection };
