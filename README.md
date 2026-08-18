@@ -1,6 +1,6 @@
 # Bulk GitHub Update Tool
 
-Push one file change (e.g. `.github/workflows/pr-review.yml`) across a chosen set of GitHub orgs/repos, with a reviewed diff per repo before anything writes. Self-hosted, single-user, MIT licensed.
+Push a file change — or a set of file changes — across a chosen set of GitHub orgs/repos, with a reviewed diff per file per repo before anything writes. Self-hosted, single-user, MIT licensed.
 
 Full design spec: https://claude.ai/code/artifact/89d010c4-46f9-4343-b51d-b15f9f57a494
 
@@ -8,7 +8,7 @@ See [`CLAUDE.md`](./CLAUDE.md) for the condensed architecture reference and work
 
 ## Status
 
-Phase 1 (MVP) and Phase 2 complete — the full workflow (Connect → Select → Define → Preview → Confirm → Execute → Results) works end to end, with GitHub App auth, filtered targeting, async execution with live progress, retry-failed-only, per-repo template variables, and Slack notifications. See `CLAUDE.md` for details and what's left (Phase 3: scheduled runs, multi-file changesets).
+Phase 1 (MVP) and Phase 2 complete — the full workflow (Connect → Select → Define → Preview → Confirm → Execute → Results) works end to end, with GitHub App auth, filtered targeting, async execution with live progress, retry-failed-only, per-repo template variables, multi-file changesets, and Slack notifications. See `CLAUDE.md` for details and what's left (Phase 3: scheduled runs).
 
 ## Layout
 
