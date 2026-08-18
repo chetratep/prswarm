@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import type { JobView } from "@bulk-github-update-tool/shared-types";
+import type { JobView, RepoRunFile } from "@bulk-github-update-tool/shared-types";
 import { apiGet } from "../api/client";
-import { deriveDiffStatus, type DiffStatus } from "../lib/repoRunStatus";
+import {
+  deriveDiffStatus,
+  groupRepoRunFilesByRepoRunId,
+  worstDiffStatus,
+  type DiffStatus,
+} from "../lib/repoRunStatus";
 
 const STATUS_LABEL: Record<DiffStatus, string> = {
   error: "Error",
@@ -35,9 +40,34 @@ function DiffView({ diff }: { diff: string | null }) {
   );
 }
 
+function FileRow({ file, isOpen, onToggle }: { file: RepoRunFile; isOpen: boolean; onToggle: () => void }) {
+  const status = deriveDiffStatus(file);
+  return (
+    <li className="repo-run-file">
+      <button type="button" className="repo-run-file__header" onClick={onToggle} aria-expanded={isOpen}>
+        <span className="repo-run-file__path">{file.filePath}</span>
+        <span className={`chip chip--${status}`}>{STATUS_LABEL[status]}</span>
+        <span className="repo-run__toggle">{isOpen ? "▲" : "▼"}</span>
+      </button>
+      {isOpen && (
+        <div className="repo-run-file__body">
+          {status === "error" ? (
+            <p className="form__error" role="alert">
+              {file.errorMessage}
+            </p>
+          ) : (
+            <DiffView diff={file.diffSummary} />
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 export function PreviewPage() {
   const { jobId } = useParams<{ jobId: string }>();
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -46,13 +76,25 @@ export function PreviewPage() {
     enabled: !!jobId,
   });
 
-  function toggle(runId: string) {
-    setExpanded((prev) => {
+  function toggleRepo(runId: string) {
+    setExpandedRepos((prev) => {
       const next = new Set(prev);
       if (next.has(runId)) {
         next.delete(runId);
       } else {
         next.add(runId);
+      }
+      return next;
+    });
+  }
+
+  function toggleFile(fileId: string) {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
       }
       return next;
     });
@@ -89,27 +131,31 @@ export function PreviewPage() {
     );
   }
 
-  const { repoRuns } = jobQuery.data;
+  const { repoRuns, repoRunFiles } = jobQuery.data;
+  const filesByRepoRunId = groupRepoRunFilesByRepoRunId(repoRunFiles);
 
   return (
     <div className="page">
       <h2>Preview</h2>
       <p className="page__intro">
         {repoRuns.length} repo{repoRuns.length === 1 ? "" : "s"} targeted. Expand a row to see its
-        diff before continuing.
+        files, and a file to see its diff, before continuing.
       </p>
 
       <ul className="repo-run-list">
         {repoRuns.map((run) => {
-          const status = deriveDiffStatus(run);
-          const isOpen = expanded.has(run.id);
+          const files = filesByRepoRunId.get(run.id) ?? [];
+          const status = run.errorMessage
+            ? "error"
+            : worstDiffStatus(files.map((f) => deriveDiffStatus(f)));
+          const isOpen = expandedRepos.has(run.id);
           const protectedWarning = run.directToDefault && run.branchProtected === true;
           return (
             <li key={run.id} className="repo-run">
               <button
                 type="button"
                 className="repo-run__header"
-                onClick={() => toggle(run.id)}
+                onClick={() => toggleRepo(run.id)}
                 aria-expanded={isOpen}
               >
                 <span className="repo-run__name">{run.repoFullName}</span>
@@ -121,12 +167,21 @@ export function PreviewPage() {
               </button>
               {isOpen && (
                 <div className="repo-run__body">
-                  {status === "error" ? (
+                  {run.status === "FAILED" && run.errorMessage && files.length === 0 ? (
                     <p className="form__error" role="alert">
                       {run.errorMessage}
                     </p>
                   ) : (
-                    <DiffView diff={run.diffSummary} />
+                    <ul className="repo-run-file-list">
+                      {files.map((file) => (
+                        <FileRow
+                          key={file.id}
+                          file={file}
+                          isOpen={expandedFiles.has(file.id)}
+                          onToggle={() => toggleFile(file.id)}
+                        />
+                      ))}
+                    </ul>
                   )}
                 </div>
               )}

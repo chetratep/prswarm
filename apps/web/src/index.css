@@ -821,6 +821,46 @@ code {
   background: rgba(248, 81, 73, 0.15);
 }
 
+.repo-run-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.repo-run-file {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.repo-run-file:last-child {
+  border-bottom: none;
+}
+
+.repo-run-file__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-align: left;
+  color: var(--color-text);
+}
+
+.repo-run-file__path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.repo-run-file__body {
+  padding: 0 0.7rem 0.7rem;
+}
+
 /* Confirm page */
 
 .confirm-summary {
