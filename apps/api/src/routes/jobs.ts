@@ -31,6 +31,7 @@ import { runJobExecution } from "../jobQueue.js";
 import { subscribeToJob } from "../jobEventBus.js";
 import { getChangeSetById } from "../repositories/changesetsRepository.js";
 import { getJobById, updateJob } from "../repositories/jobsRepository.js";
+import { getRepoRunFilesByJobId } from "../repositories/repoRunFilesRepository.js";
 import { getRepoRunsByJobId } from "../repositories/repoRunsRepository.js";
 
 export interface JobsRouteOptions {
@@ -72,7 +73,8 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
       return reply.code(404).send({ error: "Job not found" });
     }
     const repoRuns = getRepoRunsByJobId(db, job.id);
-    const response: JobView = { job, repoRuns };
+    const repoRunFiles = getRepoRunFilesByJobId(db, job.id);
+    const response: JobView = { job, repoRuns, repoRunFiles };
     return response;
   });
 
@@ -119,7 +121,8 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
       });
 
       const repoRuns = getRepoRunsByJobId(db, job.id);
-      const response: JobView = { job: runningJob, repoRuns };
+      const repoRunFiles = getRepoRunFilesByJobId(db, job.id);
+      const response: JobView = { job: runningJob, repoRuns, repoRunFiles };
       return response;
     }
   );
@@ -161,7 +164,8 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
       });
 
       const repoRuns = getRepoRunsByJobId(db, job.id);
-      const response: JobView = { job: runningJob, repoRuns };
+      const repoRunFiles = getRepoRunFilesByJobId(db, job.id);
+      const response: JobView = { job: runningJob, repoRuns, repoRunFiles };
       return response;
     }
   );
@@ -189,7 +193,8 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
     // progress already happened (e.g. a page refresh mid-run) must not be
     // stuck showing nothing until the next live event arrives.
     const repoRuns = getRepoRunsByJobId(db, job.id);
-    writeEvent({ type: "snapshot", job, repoRuns });
+    const repoRunFiles = getRepoRunFilesByJobId(db, job.id);
+    writeEvent({ type: "snapshot", job, repoRuns, repoRunFiles });
 
     let unsubscribed = false;
     const unsubscribe = subscribeToJob(job.id, (event) => {

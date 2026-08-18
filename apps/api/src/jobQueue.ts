@@ -15,8 +15,9 @@ import { loadOctokitForCurrentConnection } from "./github/loadConnection.js";
 import { executeRepoRun } from "./github/repoExecute.js";
 import { publishJobEvent } from "./jobEventBus.js";
 import { notifySlack } from "./notifications/slack.js";
-import { getChangeSetById } from "./repositories/changesetsRepository.js";
+import { getChangeSetById, getChangeSetFilesByChangeSetId } from "./repositories/changesetsRepository.js";
 import { getJobById, updateJob } from "./repositories/jobsRepository.js";
+import { getRepoRunFilesByRepoRunId } from "./repositories/repoRunFilesRepository.js";
 import { getRepoRunsByJobId, updateRepoRun } from "./repositories/repoRunsRepository.js";
 
 const CONCURRENCY = 5;
@@ -70,6 +71,8 @@ export async function runJobExecution(
       return;
     }
 
+    const changeSetFiles = getChangeSetFilesByChangeSetId(db, changeSet.id);
+
     const octokit = await loadOctokitForCurrentConnection(db);
 
     // The route handler already persisted RUNNING (and startedAt) before
@@ -87,9 +90,10 @@ export async function runJobExecution(
     await Promise.all(
       eligible.map((repoRun) =>
         limit(async () => {
-          const update = await executeRepoRun(octokit, changeSet, repoRun);
+          const repoRunFiles = getRepoRunFilesByRepoRunId(db, repoRun.id);
+          const update = await executeRepoRun(octokit, changeSet, changeSetFiles, repoRun, repoRunFiles);
           const updated = updateRepoRun(db, repoRun.id, update);
-          publishJobEvent(jobId, { type: "repo_run_update", repoRun: updated });
+          publishJobEvent(jobId, { type: "repo_run_update", repoRun: updated, files: repoRunFiles });
         })
       )
     );
