@@ -1,9 +1,16 @@
-// Helper shared by the /api/orgs and /api/orgs/:org/repos routes: loads the
-// current connection, decrypts its token, and hands back a ready-to-use
-// Octokit client. Throws NoConnectionError if no connection has been created
-// yet, which routes translate to a 400 response. Async because building a
-// GitHub App connection's Octokit exchanges a fresh installation token over
-// the network (see buildOctokitForConnection).
+// Helper shared by every route that needs a ready-to-use Octokit for a
+// specific user's connection: loads that user's connection row, decrypts
+// its token, and hands back the client. Throws NoConnectionError if that
+// user has no connection yet, which routes translate to a 400 response.
+// Async because building a GitHub App connection's Octokit exchanges a
+// fresh installation token over the network (see buildOctokitForConnection).
+//
+// Callers pass whichever userId is relevant to them — usually the current
+// session's own user (discovery, connect-time actions), but job
+// execute/retry deliberately pass the *job's creator's* userId instead of
+// whoever is clicking the button, so a run always executes under the
+// credential that actually previewed it (see routes/jobs.ts and
+// jobQueue.ts).
 import { Octokit } from "@octokit/rest";
 import type { Connection } from "@bulk-github-update-tool/shared-types";
 import { decrypt } from "../crypto.js";
@@ -18,8 +25,8 @@ export class NoConnectionError extends Error {
   }
 }
 
-export async function loadOctokitForCurrentConnection(db: AppDatabase): Promise<Octokit> {
-  const row = getCurrentConnectionRow(db);
+export async function loadOctokitForCurrentConnection(db: AppDatabase, userId: string): Promise<Octokit> {
+  const row = getCurrentConnectionRow(db, userId);
   if (!row || !row.encrypted_token) {
     throw new NoConnectionError();
   }
@@ -28,6 +35,7 @@ export async function loadOctokitForCurrentConnection(db: AppDatabase): Promise<
     id: row.id,
     type: row.type,
     login: row.login,
+    host: row.host,
     appId: row.app_id,
     installationId: row.installation_id,
     createdAt: row.created_at,
