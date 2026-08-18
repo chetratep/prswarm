@@ -1,11 +1,12 @@
 // Changeset definition + diff-preview job creation.
-//   POST /changesets           -> define a file change (name/path/mode/
-//                                  content/branch+commit strategy).
+//   POST /changesets           -> define one or more file changes (name +
+//                                  files[] + branch/commit strategy).
 //   POST /changesets/:id/jobs  -> resolve a target repo list into a job:
-//                                  computes a real per-repo diff against
-//                                  every targeted repo (sequentially, no
-//                                  concurrency pool yet — that's Phase 2)
-//                                  before anything writes.
+//                                  computes a real per-repo, per-file diff
+//                                  against every targeted repo (sequentially,
+//                                  no concurrency pool yet — matches the
+//                                  existing MVP simplification) before
+//                                  anything writes.
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Octokit } from "@octokit/rest";
 import { z } from "zod";
@@ -22,10 +23,13 @@ import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/lo
 import { computeRepoRunPreview } from "../github/repoDiff.js";
 import {
   getChangeSetById,
+  getChangeSetFilesByChangeSetId,
   insertChangeSet,
+  insertChangeSetFile,
   insertTargetSelection,
 } from "../repositories/changesetsRepository.js";
 import { insertJob, updateJob } from "../repositories/jobsRepository.js";
+import { getRepoRunFilesByJobId, insertRepoRunFile } from "../repositories/repoRunFilesRepository.js";
 import { getRepoRunsByJobId, insertRepoRun } from "../repositories/repoRunsRepository.js";
 
 export interface ChangesetsRouteOptions {
@@ -46,9 +50,15 @@ async function getOctokitOr400(db: AppDatabase, reply: FastifyReply): Promise<Oc
 
 const createChangeSetBodySchema = z.object({
   name: z.string().min(1),
-  filePath: z.string().min(1),
-  mode: z.enum(["CREATE_ONLY", "OVERWRITE", "UPSERT"]),
-  content: z.string(),
+  files: z
+    .array(
+      z.object({
+        filePath: z.string().min(1),
+        mode: z.enum(["CREATE_ONLY", "OVERWRITE", "UPSERT"]),
+        content: z.string(),
+      })
+    )
+    .min(1),
   branchStrategy: z.enum(["DEFAULT", "NEW_BRANCH"]),
   commitStrategy: z.enum(["DIRECT_COMMIT", "PULL_REQUEST"]),
   commitMessage: z.string().min(1),
@@ -73,19 +83,36 @@ export async function registerChangesetsRoutes(
       return reply.code(400).send({ error: parsed.error.message });
     }
 
-    // contentSource/templateVarsSchema are derived from the content itself,
-    // server-side, never from a client-supplied flag — the request body has
-    // no contentSource field and never will. Scanning with the same
-    // extractTemplateVariables the frontend uses keeps the two in agreement
-    // about what counts as a template variable.
-    const variables = extractTemplateVariables(parsed.data.content);
-    const contentSource = variables.length > 0 ? "TEMPLATE" : "STATIC";
-    const templateVarsSchema =
-      contentSource === "TEMPLATE"
-        ? Object.fromEntries(variables.map((v) => [v, ""]))
-        : null;
+    const changeSet = insertChangeSet(db, {
+      name: parsed.data.name,
+      branchStrategy: parsed.data.branchStrategy,
+      commitStrategy: parsed.data.commitStrategy,
+      commitMessage: parsed.data.commitMessage,
+      prTitle: parsed.data.prTitle,
+      prBody: parsed.data.prBody,
+    });
 
-    const changeSet = insertChangeSet(db, { ...parsed.data, contentSource, templateVarsSchema });
+    // contentSource/templateVarsSchema are derived from each file's own
+    // content, server-side, never from a client-supplied flag — same
+    // extractTemplateVariables function the frontend uses, so the two can
+    // never disagree about what counts as a template variable.
+    parsed.data.files.forEach((file, index) => {
+      const variables = extractTemplateVariables(file.content);
+      const contentSource = variables.length > 0 ? "TEMPLATE" : "STATIC";
+      const templateVarsSchema =
+        contentSource === "TEMPLATE" ? Object.fromEntries(variables.map((v) => [v, ""])) : null;
+
+      insertChangeSetFile(db, {
+        changeSetId: changeSet.id,
+        orderIndex: index,
+        filePath: file.filePath,
+        mode: file.mode,
+        contentSource,
+        content: file.content,
+        templateVarsSchema,
+      });
+    });
+
     const response: CreateChangeSetResponse = { changeSet };
     return response;
   });
@@ -97,6 +124,7 @@ export async function registerChangesetsRoutes(
       if (!changeSet) {
         return reply.code(404).send({ error: "Change set not found" });
       }
+      const changeSetFiles = getChangeSetFilesByChangeSetId(db, changeSet.id);
 
       const parsed = createJobBodySchema.safeParse(request.body);
       if (!parsed.success) {
@@ -107,10 +135,6 @@ export async function registerChangesetsRoutes(
       const octokit = await getOctokitOr400(db, reply);
       if (!octokit) return reply;
 
-      // orgs = unique set of "owner" prefixes from targetRepos. Not
-      // precisely tracked beyond this in the MVP pass — the Select page
-      // already resolved the full repo list client-side, so selectAllInOrg
-      // isn't load-bearing here.
       const orgs = Array.from(new Set(targetRepos.map((full) => full.split("/")[0])));
 
       const { job } = db.transaction(() => {
@@ -133,33 +157,42 @@ export async function registerChangesetsRoutes(
         return { job, targetSelection };
       })();
 
-      // Sequential, not concurrent (no pool yet — Phase 2). Each repo's
-      // failure is captured into its own row by computeRepoRunPreview and
-      // must never abort the loop.
+      // Sequential, not concurrent — matches the existing MVP
+      // simplification. Each repo's failure is captured into its own row
+      // by computeRepoRunPreview and must never abort the loop.
       for (const repoFullName of targetRepos) {
-        // For TEMPLATE changesets, render this repo's content: schema
-        // defaults first, then this repo's explicit overrides layered on
-        // top (a repo with no explicit value for a variable falls back to
-        // the schema default — currently always "" since there's no
-        // default-value UI yet, but the ordering is correct and
-        // future-proof for when there is one). STATIC changesets pass
-        // the shared content through unchanged.
-        const afterContent =
-          changeSet.contentSource === "TEMPLATE"
-            ? renderTemplate(changeSet.content, {
-                ...(changeSet.templateVarsSchema ?? {}),
-                ...(templateValues?.[repoFullName] ?? {}),
-              })
-            : changeSet.content;
+        // Render each file's content for this repo: schema defaults
+        // first, then this repo's explicit overrides layered on top.
+        // STATIC files pass their content through unchanged.
+        const afterContentByFileId: Record<string, string> = {};
+        for (const file of changeSetFiles) {
+          afterContentByFileId[file.id] =
+            file.contentSource === "TEMPLATE"
+              ? renderTemplate(file.content, {
+                  ...(file.templateVarsSchema ?? {}),
+                  ...(templateValues?.[repoFullName] ?? {}),
+                })
+              : file.content;
+        }
 
-        const preview = await computeRepoRunPreview(octokit, changeSet, repoFullName, afterContent);
-        insertRepoRun(db, { jobId: job.id, repoFullName, ...preview });
+        const preview = await computeRepoRunPreview(
+          octokit,
+          changeSet,
+          changeSetFiles,
+          repoFullName,
+          afterContentByFileId
+        );
+        const repoRun = insertRepoRun(db, { jobId: job.id, repoFullName, ...preview.repoRun });
+        for (const filePreview of preview.files) {
+          insertRepoRunFile(db, { repoRunId: repoRun.id, ...filePreview });
+        }
       }
 
       const finalJob = updateJob(db, job.id, { status: "READY" });
       const repoRuns = getRepoRunsByJobId(db, job.id);
+      const repoRunFiles = getRepoRunFilesByJobId(db, job.id);
 
-      const response: JobView = { job: finalJob, repoRuns };
+      const response: JobView = { job: finalJob, repoRuns, repoRunFiles };
       return response;
     }
   );
