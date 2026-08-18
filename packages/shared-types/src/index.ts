@@ -20,17 +20,26 @@ export type CommitStrategy = "DIRECT_COMMIT" | "PULL_REQUEST";
 export interface ChangeSet {
   id: string;
   name: string;
-  filePath: string;
-  mode: WriteMode;
-  contentSource: ContentSource;
-  content: string;
-  templateVarsSchema: Record<string, string> | null;
   branchStrategy: BranchStrategy;
   commitStrategy: CommitStrategy;
   commitMessage: string;
   prTitle: string | null;
   prBody: string | null;
   createdAt: string;
+}
+
+export interface ChangeSetFile {
+  id: string;
+  changeSetId: string;
+  /** Display/apply order, 0-based — also the order files are laid onto the
+   * commit tree in, though tree order has no functional effect (each file
+   * is its own tree entry keyed by path). */
+  orderIndex: number;
+  filePath: string;
+  mode: WriteMode;
+  contentSource: ContentSource;
+  content: string;
+  templateVarsSchema: Record<string, string> | null;
 }
 
 export interface RepoFilter {
@@ -83,24 +92,36 @@ export interface RepoRun {
   jobId: string;
   repoFullName: string;
   status: RepoRunStatus;
-  diffSummary: string | null;
-  beforeSha: string | null;
-  afterSha: string | null;
+  /** A property of the branch, not any one file — checked once per repo at
+   * preview time, only meaningful when directToDefault is true. */
   branchProtected: boolean | null;
   directToDefault: boolean;
   commitSha: string | null;
   prUrl: string | null;
   errorMessage: string | null;
   attemptCount: number;
-  /** The exact content this repo's diff was computed against and (once
-   * executed) written with — for STATIC changesets this is just
-   * changeSet.content, for TEMPLATE it's that content with this repo's
-   * {{variable}} values substituted in. Computed once at preview time and
-   * reused verbatim at execute time, so what you review is guaranteed to be
-   * what gets written — never recomputed from changeSet.content on the fly
-   * (which is what let this drift from the diff for template changesets
-   * before this field existed). Nullable only for rows created before this
-   * field was added; executeRepoRun falls back to changeSet.content for those. */
+}
+
+export interface RepoRunFile {
+  id: string;
+  repoRunId: string;
+  changeSetFileId: string;
+  /** Denormalized copy of the changeset file's path at preview time, so
+   * this row still reads correctly if the changeset is ever edited later
+   * (changesets aren't editable today, but this shouldn't silently break
+   * if that changes). */
+  filePath: string;
+  diffSummary: string | null;
+  beforeSha: string | null;
+  afterSha: string | null;
+  /** Set when THIS file's preview fetch failed (e.g. its path is a
+   * directory) while other files in the same repo run succeeded. */
+  errorMessage: string | null;
+  /** The exact content this file's diff was computed against and (once
+   * executed) written with — computed once at preview time and reused
+   * verbatim at execute time, never re-derived, so what's reviewed is
+   * guaranteed to be what gets written. This row is never updated after
+   * being inserted at preview time. */
   renderedContent: string | null;
 }
 
@@ -122,9 +143,11 @@ export interface RepoRun {
 
 export interface CreateChangeSetRequest {
   name: string;
-  filePath: string;
-  mode: WriteMode;
-  content: string;
+  files: Array<{
+    filePath: string;
+    mode: WriteMode;
+    content: string;
+  }>;
   branchStrategy: BranchStrategy;
   commitStrategy: CommitStrategy;
   commitMessage: string;
@@ -177,6 +200,10 @@ export function renderTemplate(content: string, values: Record<string, string>):
 export interface JobView {
   job: Job;
   repoRuns: RepoRun[];
+  /** Flat across every repo_run in the job — pages group by repoRunId
+   * themselves (see apps/web/src/lib/repoRunStatus.ts's
+   * groupRepoRunFilesByRepoRunId). */
+  repoRunFiles: RepoRunFile[];
 }
 
 export interface ExecuteJobRequest {
@@ -288,9 +315,9 @@ export interface ConnectGithubAppResponse {
 // SSE rather than polling.
 
 export type JobEvent =
-  | { type: "snapshot"; job: Job; repoRuns: RepoRun[] }
+  | { type: "snapshot"; job: Job; repoRuns: RepoRun[]; repoRunFiles: RepoRunFile[] }
   | { type: "job_update"; job: Job }
-  | { type: "repo_run_update"; repoRun: RepoRun };
+  | { type: "repo_run_update"; repoRun: RepoRun; files: RepoRunFile[] };
 
 export interface RetryJobRequest {
   confirm: true;
