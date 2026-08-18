@@ -145,6 +145,16 @@ function runMigrations(db: AppDatabase): void {
   // file make.
   addColumnIfNotExists(db, "jobs", "created_at", "TEXT");
   db.exec("UPDATE jobs SET created_at = COALESCE(started_at, datetime('now')) WHERE created_at IS NULL");
+
+  // connections.user_id / connections.host: connections move from "at most
+  // one row, period" to "at most one row per user" (multi-user access
+  // control), and gain an optional GitHub Enterprise Server host. Both
+  // additive/idempotent, same pattern as every column added above.
+  // user_id is backfilled separately by bootstrapAuth() at startup (see
+  // auth/bootstrap.ts) once it knows which user should own pre-migration
+  // rows — not backfilled here, since db.ts has no concept of "the admin".
+  addColumnIfNotExists(db, "connections", "user_id", "TEXT");
+  addColumnIfNotExists(db, "connections", "host", "TEXT");
 }
 
 function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {

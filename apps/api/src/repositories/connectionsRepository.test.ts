@@ -6,6 +6,7 @@ import { openDatabase, type AppDatabase } from "../db.js";
 import {
   deleteCurrentConnection,
   getCurrentConnection,
+  reassignOrphanedConnections,
   replaceWithPatConnection,
 } from "./connectionsRepository.js";
 
@@ -33,19 +34,57 @@ function freshDb(): AppDatabase {
 }
 
 describe("connectionsRepository", () => {
-  it("deleteCurrentConnection removes the stored connection entirely", () => {
+  it("deleteCurrentConnection removes only that user's connection", () => {
     const database = freshDb();
-    replaceWithPatConnection(database, { login: "octocat", encryptedToken: "enc" });
-    expect(getCurrentConnection(database)).not.toBeNull();
+    replaceWithPatConnection(database, "user-a", { login: "octocat", host: null, encryptedToken: "enc" });
+    expect(getCurrentConnection(database, "user-a")).not.toBeNull();
 
-    deleteCurrentConnection(database);
+    deleteCurrentConnection(database, "user-a");
 
-    expect(getCurrentConnection(database)).toBeNull();
+    expect(getCurrentConnection(database, "user-a")).toBeNull();
   });
 
-  it("deleteCurrentConnection is a no-op when there is no connection", () => {
+  it("deleteCurrentConnection is a no-op when that user has no connection", () => {
     const database = freshDb();
-    expect(() => deleteCurrentConnection(database)).not.toThrow();
-    expect(getCurrentConnection(database)).toBeNull();
+    expect(() => deleteCurrentConnection(database, "nobody")).not.toThrow();
+  });
+
+  it("reconnecting one user's PAT never touches another user's connection", () => {
+    const database = freshDb();
+    replaceWithPatConnection(database, "user-a", { login: "alice-gh", host: null, encryptedToken: "enc-a" });
+    replaceWithPatConnection(database, "user-b", { login: "bob-gh", host: null, encryptedToken: "enc-b" });
+
+    // user-a reconnects with a new token — must not delete user-b's row.
+    replaceWithPatConnection(database, "user-a", { login: "alice-gh-2", host: null, encryptedToken: "enc-a-2" });
+
+    expect(getCurrentConnection(database, "user-a")?.login).toBe("alice-gh-2");
+    expect(getCurrentConnection(database, "user-b")?.login).toBe("bob-gh");
+  });
+
+  it("stores and returns a GitHub Enterprise host", () => {
+    const database = freshDb();
+    const connection = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: "ghe.example.com",
+      encryptedToken: "enc",
+    });
+    expect(connection.host).toBe("ghe.example.com");
+    expect(getCurrentConnection(database, "user-a")?.host).toBe("ghe.example.com");
+  });
+
+  it("reassignOrphanedConnections assigns pre-migration rows (user_id NULL) to the given admin", () => {
+    const database = freshDb();
+    // Simulate a pre-migration row directly — replaceWithPatConnection
+    // always sets user_id now, so this bypasses it to model legacy data.
+    database
+      .prepare(
+        `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+         VALUES ('legacy-1', NULL, 'PAT', 'legacy-login', NULL, NULL, NULL, 'enc', '2020-01-01T00:00:00.000Z')`
+      )
+      .run();
+
+    reassignOrphanedConnections(database, "admin-1");
+
+    expect(getCurrentConnection(database, "admin-1")?.login).toBe("legacy-login");
   });
 });

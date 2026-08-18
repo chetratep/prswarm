@@ -7,6 +7,7 @@ export interface Connection {
   id: string;
   type: ConnectionType;
   login: string | null;
+  host: string | null;
   appId: string | null;
   installationId: string | null;
   createdAt: string;
@@ -241,6 +242,7 @@ export interface ExecuteJobRequest {
 
 export interface ConnectPatRequest {
   token: string;
+  host?: string;
 }
 
 export interface ConnectPatResponse {
@@ -308,6 +310,7 @@ export interface FetchContentResponse {
 export interface ListGithubAppInstallationsRequest {
   appId: string;
   privateKeyPem: string;
+  host?: string;
 }
 
 export interface GithubAppInstallationSummary {
@@ -325,6 +328,7 @@ export interface ConnectGithubAppRequest {
   appId: string;
   privateKeyPem: string;
   installationId: number;
+  host?: string;
 }
 
 export interface ConnectGithubAppResponse {
