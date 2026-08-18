@@ -2,7 +2,9 @@
 // (encrypted) and never returns raw or encrypted token material. The
 // GitHub App routes below follow the same shape: verify against real GitHub
 // before ever writing to the DB, and never return raw/encrypted secret
-// material in a response.
+// material in a response. Every route here acts on the CURRENT SESSION
+// USER's own connection (resolveCurrentUser) — connections are per-user,
+// not instance-wide, as of the multi-user access control work.
 import { Octokit } from "@octokit/rest";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -17,6 +19,7 @@ import type {
 } from "@bulk-github-update-tool/shared-types";
 import { encrypt } from "../crypto.js";
 import type { AppDatabase } from "../db.js";
+import { resolveCurrentUser } from "../auth/currentUser.js";
 import { listAppInstallations } from "../github/appAuth.js";
 import {
   deleteCurrentConnection,
@@ -27,17 +30,20 @@ import {
 
 const connectPatBodySchema = z.object({
   token: z.string().min(1),
+  host: z.string().min(1).optional(),
 });
 
 const listGithubAppInstallationsBodySchema = z.object({
   appId: z.string().min(1),
   privateKeyPem: z.string().min(1),
+  host: z.string().min(1).optional(),
 });
 
 const connectGithubAppBodySchema = z.object({
   appId: z.string().min(1),
   privateKeyPem: z.string().min(1),
   installationId: z.number(),
+  host: z.string().min(1).optional(),
 });
 
 export interface ConnectionsRouteOptions {
@@ -55,9 +61,10 @@ export async function registerConnectionsRoutes(
     if (!parsed.success) {
       return reply.code(400).send({ error: "token is required" });
     }
-    const { token } = parsed.data;
+    const { token, host } = parsed.data;
+    const currentUser = resolveCurrentUser(request);
 
-    const octokit = new Octokit({ auth: token });
+    const octokit = new Octokit({ auth: token, baseUrl: host || undefined });
 
     let login: string;
     try {
@@ -72,7 +79,11 @@ export async function registerConnectionsRoutes(
     }
 
     const encryptedToken = encrypt(token);
-    const connection = replaceWithPatConnection(db, { login, encryptedToken });
+    const connection = replaceWithPatConnection(db, currentUser.userId, {
+      login,
+      host: host ?? null,
+      encryptedToken,
+    });
 
     const response: ConnectPatResponse = { connection };
     return response;
@@ -85,11 +96,11 @@ export async function registerConnectionsRoutes(
       if (!parsed.success) {
         return reply.code(400).send({ error: "appId and privateKeyPem are required" });
       }
-      const { appId, privateKeyPem } = parsed.data;
+      const { appId, privateKeyPem, host } = parsed.data;
 
       let installations;
       try {
-        installations = await listAppInstallations(appId, privateKeyPem);
+        installations = await listAppInstallations(appId, privateKeyPem, host);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         return reply.code(400).send({
@@ -107,11 +118,12 @@ export async function registerConnectionsRoutes(
     if (!parsed.success) {
       return reply.code(400).send({ error: "appId, privateKeyPem, and installationId are required" });
     }
-    const { appId, privateKeyPem, installationId } = parsed.data;
+    const { appId, privateKeyPem, installationId, host } = parsed.data;
+    const currentUser = resolveCurrentUser(request);
 
     let installations;
     try {
-      installations = await listAppInstallations(appId, privateKeyPem);
+      installations = await listAppInstallations(appId, privateKeyPem, host);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return reply.code(400).send({
@@ -130,8 +142,9 @@ export async function registerConnectionsRoutes(
     }
 
     const encryptedPrivateKeyPem = encrypt(privateKeyPem);
-    const connection = replaceWithGithubAppConnection(db, {
+    const connection = replaceWithGithubAppConnection(db, currentUser.userId, {
       login: match.accountLogin,
+      host: host ?? null,
       appId,
       installationId,
       encryptedPrivateKeyPem,
@@ -142,7 +155,8 @@ export async function registerConnectionsRoutes(
   });
 
   app.get("/connections/current", async (request, reply) => {
-    const connection: Connection | null = getCurrentConnection(db);
+    const currentUser = resolveCurrentUser(request);
+    const connection: Connection | null = getCurrentConnection(db, currentUser.userId);
     if (!connection) {
       return reply.code(404).send({ error: "No connection configured yet" });
     }
@@ -150,12 +164,11 @@ export async function registerConnectionsRoutes(
   });
 
   // Deliberately not "disconnect and stop" — this only forgets the stored
-  // credential locally. It never revokes the PAT/App key on GitHub's side
-  // (this app was never in a position to do that for a PAT, and doesn't
-  // attempt it for a GitHub App installation either) — reconnecting the
-  // same credential afterward still works.
+  // credential locally. It never revokes the PAT/App key on GitHub's side —
+  // reconnecting the same credential afterward still works.
   app.delete("/connections/current", async (request, reply) => {
-    deleteCurrentConnection(db);
+    const currentUser = resolveCurrentUser(request);
+    deleteCurrentConnection(db, currentUser.userId);
     return reply.code(204).send();
   });
 }
