@@ -1,7 +1,11 @@
 // GitHub App authentication: discovering installations for an App ID +
 // private key, and building an Octokit authenticated as one specific
 // installation. Uses @octokit/auth-app for JWT signing (App-level auth) and
-// installation-token exchange rather than hand-rolling either.
+// installation-token exchange rather than hand-rolling either. Both
+// functions accept an optional `host` for GitHub Enterprise Server — passed
+// straight through to Octokit's own `baseUrl` option (the outer Octokit
+// constructor forwards it to createAppAuth's requests automatically, no
+// separate wiring needed — confirmed against @octokit/auth-app's own docs).
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { GithubAppInstallationSummary } from "@bulk-github-update-tool/shared-types";
@@ -11,11 +15,13 @@ import type { GithubAppInstallationSummary } from "@bulk-github-update-tool/shar
  * — the route layer is responsible for turning those into 400s. */
 export async function listAppInstallations(
   appId: string,
-  privateKeyPem: string
+  privateKeyPem: string,
+  host?: string | null
 ): Promise<GithubAppInstallationSummary[]> {
   const octokit = new Octokit({
     authStrategy: createAppAuth,
     auth: { appId, privateKey: privateKeyPem },
+    baseUrl: host || undefined,
   });
 
   const { data } = await octokit.rest.apps.listInstallations();
@@ -47,10 +53,12 @@ export async function listAppInstallations(
 export async function getInstallationOctokit(
   appId: string,
   privateKeyPem: string,
-  installationId: number
+  installationId: number,
+  host?: string | null
 ): Promise<Octokit> {
   return new Octokit({
     authStrategy: createAppAuth,
     auth: { appId, privateKey: privateKeyPem, installationId },
+    baseUrl: host || undefined,
   });
 }
