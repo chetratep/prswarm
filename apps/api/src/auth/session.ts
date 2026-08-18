@@ -65,12 +65,13 @@ export async function registerSession(app: FastifyInstance, opts: SessionOptions
     // unreachable" — the exact bug this comment is here to prevent regressing.
     const isPublicRoute =
       (request.method === "POST" && pathname === "/api/login") ||
+      (request.method === "POST" && pathname === "/api/signup") ||
       (request.method === "GET" && pathname === "/api/health") ||
       (request.method === "GET" && pathname === "/api/session");
 
     if (isPublicRoute) return;
 
-    if (request.session.get("authenticated") !== true) {
+    if (!request.session.get("userId")) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
   });

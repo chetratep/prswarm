@@ -270,11 +270,12 @@ export interface GitHubRepoSummary {
 export interface SessionStatus {
   authRequired: boolean;
   authenticated: boolean;
-  /** The instance-login username (AUTH_USERNAME) — the "system user" this
-   * session is signed in as, distinct from whichever GitHub account the
-   * stored Connection happens to use. Null when instance auth is off
-   * (single implicit local user) or not yet authenticated. */
+  /** The instance-login username — the "system user" this session is
+   * signed in as, distinct from whichever GitHub account a connection
+   * happens to use. Null when instance auth is off (single implicit local
+   * user) or not yet authenticated. */
   username: string | null;
+  role: UserRole | null;
 }
 
 export interface LoginRequest {
