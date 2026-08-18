@@ -5,17 +5,17 @@ import type { JobView, RepoRunFile } from "@bulk-github-update-tool/shared-types
 import { apiGet } from "../api/client";
 import {
   deriveDiffStatus,
+  DIFF_STATUS_ICON,
+  DIFF_STATUS_LABEL,
+  groupByOrg,
   groupRepoRunFilesByRepoRunId,
   worstDiffStatus,
-  type DiffStatus,
 } from "../lib/repoRunStatus";
-
-const STATUS_LABEL: Record<DiffStatus, string> = {
-  error: "Error",
-  new: "New file",
-  unchanged: "Unchanged",
-  modified: "Modified",
-};
+import type { RepoRun } from "@bulk-github-update-tool/shared-types";
+import { StatusChip } from "../components/StatusChip";
+import { OrgBadge } from "../components/OrgBadge";
+import { EmptyState } from "../components/EmptyState";
+import { IconAlertTriangle, IconChevronDown, IconChevronUp } from "../components/icons";
 
 function diffLineClassName(line: string): string {
   if (line.startsWith("+") && !line.startsWith("+++")) return "diff-line diff-line--add";
@@ -46,8 +46,8 @@ function FileRow({ file, isOpen, onToggle }: { file: RepoRunFile; isOpen: boolea
     <li className="repo-run-file">
       <button type="button" className="repo-run-file__header" onClick={onToggle} aria-expanded={isOpen}>
         <span className="repo-run-file__path">{file.filePath}</span>
-        <span className={`chip chip--${status}`}>{STATUS_LABEL[status]}</span>
-        <span className="repo-run__toggle">{isOpen ? "▲" : "▼"}</span>
+        <StatusChip className={`chip chip--${status}`} icon={DIFF_STATUS_ICON[status]} label={DIFF_STATUS_LABEL[status]} />
+        <span className="repo-run__toggle">{isOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}</span>
       </button>
       {isOpen && (
         <div className="repo-run-file__body">
@@ -133,6 +133,55 @@ export function PreviewPage() {
 
   const { repoRuns, repoRunFiles } = jobQuery.data;
   const filesByRepoRunId = groupRepoRunFilesByRepoRunId(repoRunFiles);
+  const orgGroups = groupByOrg(repoRuns);
+  const spansMultipleOrgs = orgGroups.size > 1;
+
+  function renderRun(run: RepoRun) {
+    const files = filesByRepoRunId.get(run.id) ?? [];
+    const status = run.errorMessage ? "error" : worstDiffStatus(files.map((f) => deriveDiffStatus(f)));
+    const isOpen = expandedRepos.has(run.id);
+    const protectedWarning = run.directToDefault && run.branchProtected === true;
+    return (
+      <li key={run.id} className="repo-run">
+        <button
+          type="button"
+          className="repo-run__header"
+          onClick={() => toggleRepo(run.id)}
+          aria-expanded={isOpen}
+        >
+          <span className="repo-run__name">{run.repoFullName}</span>
+          <StatusChip className={`chip chip--${status}`} icon={DIFF_STATUS_ICON[status]} label={DIFF_STATUS_LABEL[status]} />
+          {protectedWarning && (
+            <span className="chip chip--warning">
+              <IconAlertTriangle size={13} />
+              protected — will likely fail
+            </span>
+          )}
+          <span className="repo-run__toggle">{isOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}</span>
+        </button>
+        {isOpen && (
+          <div className="repo-run__body">
+            {run.status === "FAILED" && run.errorMessage && files.length === 0 ? (
+              <p className="form__error" role="alert">
+                {run.errorMessage}
+              </p>
+            ) : (
+              <ul className="repo-run-file-list">
+                {files.map((file) => (
+                  <FileRow
+                    key={file.id}
+                    file={file}
+                    isOpen={expandedFiles.has(file.id)}
+                    onToggle={() => toggleFile(file.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </li>
+    );
+  }
 
   return (
     <div className="page">
@@ -142,54 +191,23 @@ export function PreviewPage() {
         files, and a file to see its diff, before continuing.
       </p>
 
-      <ul className="repo-run-list">
-        {repoRuns.map((run) => {
-          const files = filesByRepoRunId.get(run.id) ?? [];
-          const status = run.errorMessage
-            ? "error"
-            : worstDiffStatus(files.map((f) => deriveDiffStatus(f)));
-          const isOpen = expandedRepos.has(run.id);
-          const protectedWarning = run.directToDefault && run.branchProtected === true;
-          return (
-            <li key={run.id} className="repo-run">
-              <button
-                type="button"
-                className="repo-run__header"
-                onClick={() => toggleRepo(run.id)}
-                aria-expanded={isOpen}
-              >
-                <span className="repo-run__name">{run.repoFullName}</span>
-                <span className={`chip chip--${status}`}>{STATUS_LABEL[status]}</span>
-                {protectedWarning && (
-                  <span className="chip chip--warning">protected — will likely fail</span>
-                )}
-                <span className="repo-run__toggle">{isOpen ? "▲" : "▼"}</span>
-              </button>
-              {isOpen && (
-                <div className="repo-run__body">
-                  {run.status === "FAILED" && run.errorMessage && files.length === 0 ? (
-                    <p className="form__error" role="alert">
-                      {run.errorMessage}
-                    </p>
-                  ) : (
-                    <ul className="repo-run-file-list">
-                      {files.map((file) => (
-                        <FileRow
-                          key={file.id}
-                          file={file}
-                          isOpen={expandedFiles.has(file.id)}
-                          onToggle={() => toggleFile(file.id)}
-                        />
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-        {repoRuns.length === 0 && <li className="repo-list__empty">No repos in this job.</li>}
-      </ul>
+      {repoRuns.length === 0 && <EmptyState message="No repos in this job." />}
+
+      {repoRuns.length > 0 && !spansMultipleOrgs && (
+        <ul className="repo-run-list">{repoRuns.map(renderRun)}</ul>
+      )}
+
+      {repoRuns.length > 0 &&
+        spansMultipleOrgs &&
+        Array.from(orgGroups.entries()).map(([org, runs]) => (
+          <div key={org} className="org-group">
+            <h3 className="org-group__heading">
+              <OrgBadge login={org} size={18} />
+              {org} <span className="badge badge--muted">{runs.length}</span>
+            </h3>
+            <ul className="repo-run-list">{runs.map(renderRun)}</ul>
+          </div>
+        ))}
 
       <Link to={`/confirm/${jobId}`} className="button button--primary">
         Continue to confirm

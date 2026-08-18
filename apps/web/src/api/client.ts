@@ -14,6 +14,7 @@ function noteUnauthorized() {
   queryClient.setQueryData<SessionStatus>(SESSION_QUERY_KEY, (old) => ({
     authRequired: old?.authRequired ?? true,
     authenticated: false,
+    username: null,
   }));
 }
 
@@ -46,6 +47,14 @@ export async function apiGet<T>(path: string): Promise<T> {
     headers: { Accept: "application/json" },
   });
   return handleResponse<T>(res);
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  const res = await fetch(path, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  await handleResponse<undefined>(res);
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {

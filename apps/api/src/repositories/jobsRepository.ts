@@ -14,6 +14,7 @@ export interface JobRow {
   created_by: string;
   started_at: string | null;
   completed_at: string | null;
+  created_at: string;
 }
 
 function rowToJob(row: JobRow): Job {
@@ -25,6 +26,7 @@ function rowToJob(row: JobRow): Job {
     createdBy: row.created_by,
     startedAt: row.started_at,
     completedAt: row.completed_at,
+    createdAt: row.created_at,
   };
 }
 
@@ -37,11 +39,12 @@ export interface InsertJobInput {
 
 export function insertJob(db: AppDatabase, input: InsertJobInput): Job {
   const id = randomUUID();
+  const createdAt = new Date().toISOString();
 
   db.prepare(
-    `INSERT INTO jobs (id, change_set_id, target_selection_id, status, created_by, started_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, input.changeSetId, input.targetSelectionId, input.status, input.createdBy, null, null);
+    `INSERT INTO jobs (id, change_set_id, target_selection_id, status, created_by, started_at, completed_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, input.changeSetId, input.targetSelectionId, input.status, input.createdBy, null, null, createdAt);
 
   return {
     id,
@@ -51,12 +54,24 @@ export function insertJob(db: AppDatabase, input: InsertJobInput): Job {
     createdBy: input.createdBy,
     startedAt: null,
     completedAt: null,
+    createdAt,
   };
 }
 
 export function getJobById(db: AppDatabase, id: string): Job | null {
   const row = db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRow | undefined;
   return row ? rowToJob(row) : null;
+}
+
+/** Newest first, for the run-history list. `rowid` is a secondary sort key
+ * so two jobs inserted within the same millisecond (created_at collides)
+ * still come back in actual insertion order rather than in
+ * SQLite-tie-break-arbitrary order. */
+export function getAllJobsOrderedByCreatedAtDesc(db: AppDatabase): Job[] {
+  const rows = db
+    .prepare("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC")
+    .all() as unknown as JobRow[];
+  return rows.map(rowToJob);
 }
 
 export interface JobUpdate {

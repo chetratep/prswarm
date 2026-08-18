@@ -1,26 +1,22 @@
 import { Fragment, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { JobStatus, JobView, RetryJobRequest } from "@bulk-github-update-tool/shared-types";
+import type { JobView, RetryJobRequest } from "@bulk-github-update-tool/shared-types";
 import { apiGet, apiPost } from "../api/client";
-import { deriveDiffStatus, groupRepoRunFilesByRepoRunId, type DiffStatus } from "../lib/repoRunStatus";
-
-const STATUS_LABEL: Record<JobStatus, string> = {
-  DRAFT: "Draft",
-  PREVIEWING: "Previewing",
-  READY: "Ready",
-  RUNNING: "Running",
-  COMPLETED: "Completed",
-  PARTIAL_FAILURE: "Partial failure",
-  FAILED: "Failed",
-};
-
-const DIFF_STATUS_LABEL: Record<DiffStatus, string> = {
-  error: "Error",
-  new: "New file",
-  unchanged: "Unchanged",
-  modified: "Modified",
-};
+import {
+  deriveDiffStatus,
+  DIFF_STATUS_ICON,
+  DIFF_STATUS_LABEL,
+  groupRepoRunFilesByRepoRunId,
+  JOB_STATUS_ICON,
+  JOB_STATUS_LABEL,
+  repoRunChipClass,
+  REPO_RUN_STATUS_ICON,
+  REPO_RUN_STATUS_LABEL,
+} from "../lib/repoRunStatus";
+import { StatusChip } from "../components/StatusChip";
+import { EmptyState } from "../components/EmptyState";
+import { IconChevronDown, IconChevronUp } from "../components/icons";
 
 export function ResultsPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -96,13 +92,17 @@ export function ResultsPage() {
 
   const canRetry =
     (job.status === "PARTIAL_FAILURE" || job.status === "FAILED") && failed > 0;
+  const JobStatusIcon = JOB_STATUS_ICON[job.status];
 
   return (
     <div className="page">
       <h2>Results</h2>
 
       <div className={`results-banner results-banner--${job.status.toLowerCase()}`}>
-        <strong>{STATUS_LABEL[job.status] ?? job.status}</strong>
+        <strong>
+          <JobStatusIcon size={16} />
+          {JOB_STATUS_LABEL[job.status] ?? job.status}
+        </strong>
         <span>
           {succeeded} succeeded · {skipped} skipped · {failed} failed
         </span>
@@ -153,11 +153,19 @@ export function ResultsPage() {
                     >
                       <span className="repo-run__name">{run.repoFullName}</span>
                       {files.length > 0 && (
-                        <span className="repo-run__toggle">{isOpen ? "▲" : "▼"}</span>
+                        <span className="repo-run__toggle">
+                          {isOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                        </span>
                       )}
                     </button>
                   </td>
-                  <td>{run.status}</td>
+                  <td>
+                    <StatusChip
+                      className={repoRunChipClass(run.status)}
+                      icon={REPO_RUN_STATUS_ICON[run.status]}
+                      label={REPO_RUN_STATUS_LABEL[run.status]}
+                    />
+                  </td>
                   <td>
                     {run.status === "FAILED" && run.errorMessage && (
                       <span className="form__error-inline">{run.errorMessage}</span>
@@ -195,9 +203,11 @@ export function ResultsPage() {
                             <li key={file.id} className="repo-run-file">
                               <span className="repo-run-file__header">
                                 <span className="repo-run-file__path">{file.filePath}</span>
-                                <span className={`chip chip--${status}`}>
-                                  {DIFF_STATUS_LABEL[status]}
-                                </span>
+                                <StatusChip
+                                  className={`chip chip--${status}`}
+                                  icon={DIFF_STATUS_ICON[status]}
+                                  label={DIFF_STATUS_LABEL[status]}
+                                />
                               </span>
                             </li>
                           );
@@ -211,7 +221,9 @@ export function ResultsPage() {
           })}
           {repoRuns.length === 0 && (
             <tr>
-              <td colSpan={3}>No repos in this job.</td>
+              <td colSpan={3}>
+                <EmptyState message="No repos in this job." />
+              </td>
             </tr>
           )}
         </tbody>

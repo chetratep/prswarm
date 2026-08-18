@@ -19,6 +19,7 @@ import { encrypt } from "../crypto.js";
 import type { AppDatabase } from "../db.js";
 import { listAppInstallations } from "../github/appAuth.js";
 import {
+  deleteCurrentConnection,
   getCurrentConnection,
   replaceWithGithubAppConnection,
   replaceWithPatConnection,
@@ -146,5 +147,15 @@ export async function registerConnectionsRoutes(
       return reply.code(404).send({ error: "No connection configured yet" });
     }
     return connection;
+  });
+
+  // Deliberately not "disconnect and stop" — this only forgets the stored
+  // credential locally. It never revokes the PAT/App key on GitHub's side
+  // (this app was never in a position to do that for a PAT, and doesn't
+  // attempt it for a GitHub App installation either) — reconnecting the
+  // same credential afterward still works.
+  app.delete("/connections/current", async (request, reply) => {
+    deleteCurrentConnection(db);
+    return reply.code(204).send();
   });
 }

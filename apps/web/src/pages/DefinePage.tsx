@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import type {
   BranchStrategy,
@@ -13,6 +13,8 @@ import { extractTemplateVariables } from "@bulk-github-update-tool/shared-types"
 import { apiPost } from "../api/client";
 import { FileEntryEditor, type FileEntryValue } from "../components/FileEntryEditor";
 import { useSelection } from "../state/SelectionContext";
+import { IconAlertTriangle, IconPlusCircle } from "../components/icons";
+import { EmptyState } from "../components/EmptyState";
 
 // The three real "how it lands" choices, collapsed onto one control rather
 // than two independent commitStrategy/branchStrategy dropdowns (see the v2
@@ -36,7 +38,7 @@ function emptyFile(): FileEntryValue {
 
 export function DefinePage() {
   const navigate = useNavigate();
-  const { selectedRepos } = useSelection();
+  const { selectedRepos, setSelectedRepos } = useSelection();
 
   const [name, setName] = useState("");
   const [files, setFiles] = useState<FileEntryValue[]>([emptyFile()]);
@@ -121,14 +123,38 @@ export function DefinePage() {
       return jobRes;
     },
     onSuccess: (jobView) => {
+      // This selection has now been spent into a real job — SelectionContext
+      // lives above the router (App.tsx) so it otherwise survives
+      // navigating all the way to Results and back. Without clearing it
+      // here, starting a *new* run by going back to /select would silently
+      // carry the previous run's repos along as pre-checked, spanning
+      // whatever orgs that old run happened to target.
+      setSelectedRepos(new Set());
       navigate(`/preview/${jobView.job.id}`);
     },
   });
 
   // Nothing was chosen on /select — don't let someone land here directly
-  // with no targets.
+  // with no targets. A silent <Navigate> here used to just bounce back to
+  // /select with no explanation, which felt broken when reached from
+  // History's or the stepper's "Define" link on an old job: SelectionContext
+  // (see state/SelectionContext.tsx) is in-memory, per-session state with no
+  // idea that job's targets — a visible message beats a redirect no one
+  // asked for.
   if (selectedRepos.size === 0) {
-    return <Navigate to="/select" replace />;
+    return (
+      <div className="page">
+        <h2>Define change</h2>
+        <EmptyState
+          message="No repos selected for this session yet."
+          action={
+            <Link to="/select" className="button button--primary">
+              Go to Select
+            </Link>
+          }
+        />
+      </div>
+    );
   }
 
   // Union of every file's {{variable}} placeholders, deduped — a variable
@@ -206,7 +232,8 @@ export function DefinePage() {
         </div>
 
         <button type="button" className="button button--secondary" onClick={addFile}>
-          + Add another file
+          <IconPlusCircle size={15} />
+          Add another file
         </button>
 
         {templateVariables.length > 0 && (
@@ -282,8 +309,8 @@ export function DefinePage() {
           </label>
           {landing === "DIRECT_DEFAULT" && (
             <p className="radio-option__warning">
-              No review step. Every push here needs typed confirmation before it runs, regardless
-              of how many repos are targeted.
+              <IconAlertTriangle size={14} /> No review step. Every push here needs typed
+              confirmation before it runs, regardless of how many repos are targeted.
             </p>
           )}
 

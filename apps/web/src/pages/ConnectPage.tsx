@@ -7,7 +7,8 @@ import type {
   ConnectPatResponse,
   ListGithubAppInstallationsResponse,
 } from "@bulk-github-update-tool/shared-types";
-import { apiGetOrNull, apiPost } from "../api/client";
+import { apiDelete, apiGetOrNull, apiPost } from "../api/client";
+import { IconCheckCircle, IconKey, IconPlug, IconTrash } from "../components/icons";
 
 const CONNECTION_QUERY_KEY = ["connection", "current"] as const;
 
@@ -48,6 +49,15 @@ export function ConnectPage() {
   // replaceWith* functions), so no separate disconnect/delete endpoint is
   // needed for this.
   const [showReconnectForm, setShowReconnectForm] = useState(false);
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => apiDelete("/api/connections/current"),
+    onSuccess: () => {
+      queryClient.setQueryData<Connection | null>(CONNECTION_QUERY_KEY, null);
+      setShowDisconnectConfirm(false);
+    },
+  });
 
   // --- PAT flow (unchanged behavior, just now lives under a tab) ---
 
@@ -131,7 +141,10 @@ export function ConnectPage() {
       <div className="page">
         <h2>Connect</h2>
         <div className="connected-card">
-          <p className="connected-card__status">Connected</p>
+          <p className="connected-card__status">
+            <IconCheckCircle size={17} />
+            Connected
+          </p>
           <p>
             <strong>{connection.login ?? "(no login)"}</strong>{" "}
             <span className="badge">{connection.type}</span>
@@ -150,7 +163,48 @@ export function ConnectPage() {
             >
               Use different credentials
             </button>
+            <button
+              type="button"
+              className="button-link button-link--danger"
+              onClick={() => setShowDisconnectConfirm(true)}
+            >
+              <IconTrash size={14} />
+              Disconnect
+            </button>
           </div>
+
+          {showDisconnectConfirm && (
+            <div className="disconnect-confirm">
+              <p>
+                This forgets the stored credential on this instance — it doesn't revoke it on
+                GitHub. You'll need to reconnect before running anything again.
+              </p>
+              {disconnectMutation.isError && (
+                <p className="form__error" role="alert">
+                  {disconnectMutation.error instanceof Error
+                    ? disconnectMutation.error.message
+                    : "Failed to disconnect."}
+                </p>
+              )}
+              <div className="disconnect-confirm__actions">
+                <button
+                  type="button"
+                  className="button button--danger"
+                  disabled={disconnectMutation.isPending}
+                  onClick={() => disconnectMutation.mutate()}
+                >
+                  {disconnectMutation.isPending ? "Disconnecting…" : "Yes, disconnect"}
+                </button>
+                <button
+                  type="button"
+                  className="button-link"
+                  onClick={() => setShowDisconnectConfirm(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -184,6 +238,7 @@ export function ConnectPage() {
           className={"method-tab" + (method === "PAT" ? " method-tab--active" : "")}
           onClick={() => handleMethodChange("PAT")}
         >
+          <IconKey size={15} />
           Personal access token
         </button>
         <button
@@ -193,6 +248,7 @@ export function ConnectPage() {
           className={"method-tab" + (method === "GITHUB_APP" ? " method-tab--active" : "")}
           onClick={() => handleMethodChange("GITHUB_APP")}
         >
+          <IconPlug size={15} />
           GitHub App
         </button>
       </div>

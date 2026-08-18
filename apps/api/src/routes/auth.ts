@@ -95,9 +95,11 @@ export async function registerAuthRoutes(app: FastifyInstance, opts: AuthRouteOp
   });
 
   app.get("/session", async (request): Promise<SessionStatus> => {
+    const authenticated = authEnabled ? request.session.get("authenticated") === true : true;
     return {
       authRequired: authEnabled,
-      authenticated: authEnabled ? request.session.get("authenticated") === true : true,
+      authenticated,
+      username: authEnabled && authenticated ? (authUsername ?? null) : null,
     };
   });
 }

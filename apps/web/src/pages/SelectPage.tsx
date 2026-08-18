@@ -8,6 +8,9 @@ import type {
 } from "@bulk-github-update-tool/shared-types";
 import { apiGet, apiGetOrNull } from "../api/client";
 import { useSelection } from "../state/SelectionContext";
+import { OrgBadge } from "../components/OrgBadge";
+import { EmptyState } from "../components/EmptyState";
+import { IconSearch } from "../components/icons";
 
 const CONNECTION_QUERY_KEY = ["connection", "current"] as const;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -151,7 +154,10 @@ export function SelectPage() {
           <div className="selection-summary__groups">
             {Array.from(selectedByOwner.entries()).map(([owner, repos]) => (
               <div key={owner} className="selection-summary__group">
-                <span className="selection-summary__owner">{owner}</span>
+                <span className="selection-summary__owner">
+                  <OrgBadge login={owner} size={16} />
+                  {owner}
+                </span>
                 <div className="selection-summary__chips">
                   {repos.map((fullName) => (
                     <span key={fullName} className="chip chip--selected-repo">
@@ -208,13 +214,16 @@ export function SelectPage() {
           </div>
 
           <div className="repo-section__controls">
-            <input
-              type="search"
-              placeholder="Filter repos by name…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="repo-search"
-            />
+            <span className="repo-search-wrap">
+              <IconSearch size={15} />
+              <input
+                type="search"
+                placeholder="Filter repos by name…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="repo-search"
+              />
+            </span>
             <input
               type="search"
               placeholder="Filter by language…"
@@ -276,7 +285,11 @@ export function SelectPage() {
                   </label>
                 </li>
               ))}
-              {repos.length === 0 && <li className="repo-list__empty">No repos match.</li>}
+              {repos.length === 0 && (
+                <li>
+                  <EmptyState message="No repos match these filters." />
+                </li>
+              )}
             </ul>
           )}
         </div>

@@ -21,16 +21,18 @@ import { z } from "zod";
 import type {
   ExecuteJobRequest,
   JobEvent,
+  JobHistoryEntry,
   JobStatus,
   JobView,
+  ListJobsResponse,
   RetryJobRequest,
 } from "@bulk-github-update-tool/shared-types";
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { runJobExecution } from "../jobQueue.js";
 import { subscribeToJob } from "../jobEventBus.js";
-import { getChangeSetById } from "../repositories/changesetsRepository.js";
-import { getJobById, updateJob } from "../repositories/jobsRepository.js";
+import { getChangeSetById, getChangeSetFilesByChangeSetId } from "../repositories/changesetsRepository.js";
+import { getAllJobsOrderedByCreatedAtDesc, getJobById, updateJob } from "../repositories/jobsRepository.js";
 import { getRepoRunFilesByJobId } from "../repositories/repoRunFilesRepository.js";
 import { getRepoRunsByJobId } from "../repositories/repoRunsRepository.js";
 
@@ -67,6 +69,34 @@ const retryJobBodySchema = z.object({
 export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOptions): Promise<void> {
   const { db } = opts;
 
+  // GET /jobs — run history, newest first. Each entry carries summary counts
+  // (files, repos, orgs, success/skipped/failed) rather than the full
+  // JobView every row would need for a table — that's what GET /jobs/:id
+  // (via the Results page) is for once a run is picked.
+  app.get("/jobs", async (): Promise<ListJobsResponse> => {
+    const jobs = getAllJobsOrderedByCreatedAtDesc(db);
+
+    const entries: JobHistoryEntry[] = jobs.map((job) => {
+      const changeSet = getChangeSetById(db, job.changeSetId);
+      const fileCount = changeSet ? getChangeSetFilesByChangeSetId(db, changeSet.id).length : 0;
+      const repoRuns = getRepoRunsByJobId(db, job.id);
+      const orgCount = new Set(repoRuns.map((run) => run.repoFullName.split("/")[0])).size;
+
+      return {
+        job,
+        changeSetName: changeSet?.name ?? "(deleted changeset)",
+        fileCount,
+        repoCount: repoRuns.length,
+        orgCount,
+        successCount: repoRuns.filter((run) => run.status === "SUCCESS").length,
+        skippedCount: repoRuns.filter((run) => run.status === "SKIPPED").length,
+        failedCount: repoRuns.filter((run) => run.status === "FAILED").length,
+      };
+    });
+
+    return { jobs: entries };
+  });
+
   app.get<{ Params: { id: string } }>("/jobs/:id", async (request, reply) => {
     const job = getJobById(db, request.params.id);
     if (!job) {
@@ -100,6 +130,22 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
       const changeSet = getChangeSetById(db, job.changeSetId);
       if (!changeSet) {
         return reply.code(404).send({ error: "Change set not found for this job" });
+      }
+
+      // Nothing left to do if every repo_run has already moved past
+      // DIFF_COMPUTED (the only status runJobExecution(..., ["DIFF_COMPUTED"])
+      // below picks up). Without this guard, re-clicking "Confirm & run" on a
+      // job the UI shouldn't have let you revisit (see ConfirmPage's own
+      // terminal-status guard) still flips status to RUNNING and back,
+      // corrupting completedAt and firing a spurious duplicate Slack
+      // notification, even though no repo is actually re-executed.
+      const eligibleCount = getRepoRunsByJobId(db, job.id).filter(
+        (run) => run.status === "DIFF_COMPUTED"
+      ).length;
+      if (eligibleCount === 0) {
+        return reply.code(409).send({
+          error: "This job has already run — nothing left to execute. Use retry for failed repos instead.",
+        });
       }
 
       const octokit = await getOctokitOr400(db, reply);

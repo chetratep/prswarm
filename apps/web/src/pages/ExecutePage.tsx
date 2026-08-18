@@ -1,55 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { Job, JobEvent, JobStatus, RepoRun, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
-
-const JOB_STATUS_LABEL: Record<JobStatus, string> = {
-  DRAFT: "Draft",
-  PREVIEWING: "Previewing",
-  READY: "Ready",
-  RUNNING: "Running",
-  COMPLETED: "Completed",
-  PARTIAL_FAILURE: "Partial failure",
-  FAILED: "Failed",
-};
-
-// The three statuses the backend treats as "the job is done" — matches the
-// set documented for GET /jobs/:id/events, which closes the stream itself
-// once one of these arrives on a job_update.
-const TERMINAL_JOB_STATUSES: JobStatus[] = ["COMPLETED", "PARTIAL_FAILURE", "FAILED"];
+import type { Job, JobEvent, RepoRun, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
+import {
+  JOB_STATUS_ICON,
+  JOB_STATUS_LABEL,
+  repoRunChipClass,
+  REPO_RUN_STATUS_ICON,
+  REPO_RUN_STATUS_LABEL,
+  TERMINAL_JOB_STATUSES,
+} from "../lib/repoRunStatus";
+import { StatusChip } from "../components/StatusChip";
+import { EmptyState } from "../components/EmptyState";
 
 // Statuses that mean "this repo is no longer in flight" for the live count.
 const DONE_REPO_RUN_STATUSES: RepoRunStatus[] = ["SUCCESS", "FAILED", "SKIPPED"];
-
-const REPO_RUN_STATUS_LABEL: Record<RepoRunStatus, string> = {
-  PENDING: "Queued",
-  DIFF_COMPUTED: "Queued",
-  QUEUED: "Queued",
-  RUNNING: "Running",
-  SUCCESS: "Success",
-  FAILED: "Failed",
-  SKIPPED: "Skipped",
-};
-
-/**
- * Chip class per RepoRun.status — deliberately keyed off the raw job-run
- * lifecycle status, not deriveDiffStatus (that's a different concept, see
- * lib/repoRunStatus.ts). PENDING/QUEUED/RUNNING aren't actually reachable
- * from this MVP's concurrency model beyond "not done yet" — they all render
- * the same muted "queued" look as DIFF_COMPUTED rather than inventing a fake
- * distinct in-between state.
- */
-function repoRunChipClass(status: RepoRunStatus): string {
-  switch (status) {
-    case "SUCCESS":
-      return "chip chip--run-success";
-    case "FAILED":
-      return "chip chip--run-failed";
-    case "SKIPPED":
-      return "chip chip--run-skipped";
-    default:
-      return "chip chip--run-pending";
-  }
-}
 
 export function ExecutePage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -135,13 +99,17 @@ export function ExecutePage() {
 
   const isTerminal = TERMINAL_JOB_STATUSES.includes(job.status);
   const doneCount = repoRuns.filter((run) => DONE_REPO_RUN_STATUSES.includes(run.status)).length;
+  const JobStatusIcon = JOB_STATUS_ICON[job.status];
 
   return (
     <div className="page">
       <h2>Execute</h2>
 
       <div className={`results-banner results-banner--${job.status.toLowerCase()}`}>
-        <strong>{JOB_STATUS_LABEL[job.status] ?? job.status}</strong>
+        <strong>
+          <JobStatusIcon size={16} />
+          {JOB_STATUS_LABEL[job.status] ?? job.status}
+        </strong>
         <span>
           {doneCount} of {repoRuns.length} done
         </span>
@@ -158,9 +126,11 @@ export function ExecutePage() {
           <li key={run.id} className="repo-run">
             <div className="repo-run__header repo-run__header--static">
               <span className="repo-run__name">{run.repoFullName}</span>
-              <span className={repoRunChipClass(run.status)}>
-                {REPO_RUN_STATUS_LABEL[run.status]}
-              </span>
+              <StatusChip
+                className={repoRunChipClass(run.status)}
+                icon={REPO_RUN_STATUS_ICON[run.status]}
+                label={REPO_RUN_STATUS_LABEL[run.status]}
+              />
             </div>
             {run.status === "FAILED" && run.errorMessage && (
               <div className="repo-run__body">
@@ -178,7 +148,11 @@ export function ExecutePage() {
             )}
           </li>
         ))}
-        {repoRuns.length === 0 && <li className="repo-list__empty">No repos in this job.</li>}
+        {repoRuns.length === 0 && (
+          <li>
+            <EmptyState message="No repos in this job." />
+          </li>
+        )}
       </ul>
 
       {isTerminal && (

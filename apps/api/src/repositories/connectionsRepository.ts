@@ -37,6 +37,13 @@ export function getCurrentConnection(db: AppDatabase): Connection | null {
   return row ? rowToConnection(row) : null;
 }
 
+/** Removes the stored connection entirely, leaving none configured — unlike
+ * replaceWith*Connection, which always leaves exactly one row behind. A
+ * no-op (not an error) when there's nothing to delete. */
+export function deleteCurrentConnection(db: AppDatabase): void {
+  db.prepare("DELETE FROM connections").run();
+}
+
 export interface CreatePatConnectionInput {
   login: string;
   encryptedToken: string;

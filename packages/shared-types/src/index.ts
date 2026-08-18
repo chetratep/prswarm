@@ -76,6 +76,7 @@ export interface Job {
   createdBy: string;
   startedAt: string | null;
   completedAt: string | null;
+  createdAt: string;
 }
 
 export type RepoRunStatus =
@@ -206,6 +207,23 @@ export interface JobView {
   repoRunFiles: RepoRunFile[];
 }
 
+/** One row of the run-history list — a job plus the summary counts the
+ * History page shows without fetching every job's full JobView. */
+export interface JobHistoryEntry {
+  job: Job;
+  changeSetName: string;
+  fileCount: number;
+  repoCount: number;
+  orgCount: number;
+  successCount: number;
+  skippedCount: number;
+  failedCount: number;
+}
+
+export interface ListJobsResponse {
+  jobs: JobHistoryEntry[];
+}
+
 export interface ExecuteJobRequest {
   confirm: true;
 }
@@ -241,6 +259,11 @@ export interface GitHubRepoSummary {
 export interface SessionStatus {
   authRequired: boolean;
   authenticated: boolean;
+  /** The instance-login username (AUTH_USERNAME) — the "system user" this
+   * session is signed in as, distinct from whichever GitHub account the
+   * stored Connection happens to use. Null when instance auth is off
+   * (single implicit local user) or not yet authenticated. */
+  username: string | null;
 }
 
 export interface LoginRequest {

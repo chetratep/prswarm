@@ -126,11 +126,29 @@ function runMigrations(db: AppDatabase): void {
   dropColumnIfExists(db, "repo_runs", "before_sha");
   dropColumnIfExists(db, "repo_runs", "after_sha");
   dropColumnIfExists(db, "repo_runs", "rendered_content");
+
+  // jobs.created_at: needed to order the run-history list newest-first.
+  // started_at doesn't cover it — a job can sit at READY (never executed)
+  // with no started_at at all, and changeSetId isn't 1:1 with job (a
+  // changeset can be retried into more than one job), so neither existing
+  // timestamp is a safe stand-in. Backfilled from started_at where a job
+  // already has one, otherwise "now" — same "won't crash, doesn't
+  // resurrect lost data" guarantee the other guarded migrations in this
+  // file make.
+  addColumnIfNotExists(db, "jobs", "created_at", "TEXT");
+  db.exec("UPDATE jobs SET created_at = COALESCE(started_at, datetime('now')) WHERE created_at IS NULL");
 }
 
 function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (columns.some((col) => col.name === column)) {
     db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+}
+
+function addColumnIfNotExists(db: AppDatabase, table: string, column: string, type: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((col) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 }

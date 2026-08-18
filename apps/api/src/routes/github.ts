@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { GitHubOrgSummary, GitHubRepoSummary } from "@bulk-github-update-tool/shared-types";
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
+import { getCurrentConnectionRow, type ConnectionRow } from "../repositories/connectionsRepository.js";
 import type { Octokit } from "@octokit/rest";
 
 export interface GithubRouteOptions {
@@ -22,6 +23,36 @@ async function getOctokitOr400(db: AppDatabase, reply: FastifyReply): Promise<Oc
   }
 }
 
+interface SelfAccount {
+  login: string;
+  id: number;
+  avatarUrl: string;
+  type: "User" | "Organization";
+}
+
+/** Figures out which account this connection acts as. `GET /user` (the
+ * obvious choice) only works for a PAT/OAuth user token — a GitHub App
+ * installation token has no user to represent and GitHub rejects it with
+ * "Resource not accessible by integration". A GitHub App connection is
+ * already bound to exactly one account at connect time (see
+ * routes/connections.ts, which derives `login` server-side from the
+ * installation), so for that case this looks that account's public profile
+ * up by username instead of asking "who am I" — a plain public read that
+ * works under any token type. */
+async function resolveSelf(connectionRow: ConnectionRow | undefined, octokit: Octokit): Promise<SelfAccount> {
+  const { data } =
+    connectionRow?.type === "GITHUB_APP" && connectionRow.login
+      ? await octokit.rest.users.getByUsername({ username: connectionRow.login })
+      : await octokit.rest.users.getAuthenticated();
+
+  return {
+    login: data.login,
+    id: data.id,
+    avatarUrl: data.avatar_url,
+    type: "type" in data && data.type === "Organization" ? "Organization" : "User",
+  };
+}
+
 export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRouteOptions): Promise<void> {
   const { db } = opts;
 
@@ -29,15 +60,26 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
     const octokit = await getOctokitOr400(db, reply);
     if (!octokit) return reply;
 
+    const connectionRow = getCurrentConnectionRow(db);
+    const self = await resolveSelf(connectionRow, octokit);
+
+    // A GitHub App connection is already bound to exactly one account (the
+    // installation it was connected to) — there's no "list every org I
+    // belong to" the way a PAT can see (that's GET /user/orgs, also a
+    // user-token-only endpoint an installation token can't call). That one
+    // account IS the only entry.
+    if (connectionRow?.type === "GITHUB_APP") {
+      return [self satisfies GitHubOrgSummary];
+    }
+
     // The authenticated account's own namespace isn't an "org" from GitHub's
     // API point of view, but repos owned directly by you (not under any
     // org) are exactly as valid a target as an org's repos — list it first,
     // as a pseudo-org the frontend treats like any other entry.
-    const { data: self } = await octokit.rest.users.getAuthenticated();
     const { data: orgsData } = await octokit.rest.orgs.listForAuthenticatedUser({ per_page: 100 });
 
     const orgs: GitHubOrgSummary[] = [
-      { login: self.login, id: self.id, avatarUrl: self.avatar_url, type: "User" },
+      self,
       ...orgsData.map((org) => ({
         login: org.login,
         id: org.id,
@@ -62,23 +104,40 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
     const topic = request.query.topic?.trim().toLowerCase();
     const archived = request.query.archived;
 
-    // A repo path can't tell you whether ":org" is a real org or the
-    // authenticated user's own login — GitHub has separate endpoints for
-    // each and 404s if you call the wrong one. Ask once, cheaply.
-    const { data: self } = await octokit.rest.users.getAuthenticated();
+    const connectionRow = getCurrentConnectionRow(db);
 
     // Follow every page — orgs (and users) can have hundreds of repos and
     // "select all" depends on seeing the full list, not just page 1.
-    const allRepos =
-      org === self.login
-        ? await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
-            affiliation: "owner",
-            per_page: 100,
-          })
-        : await octokit.paginate(octokit.rest.repos.listForOrg, {
-            org,
-            per_page: 100,
-          });
+    let allRepos;
+    if (connectionRow?.type === "GITHUB_APP") {
+      // repos.listForOrg / listForAuthenticatedUser are "for the
+      // authenticated user" endpoints an installation token can't reliably
+      // use (same restriction that breaks GET /user), and even where they
+      // do work they can list more than the installation was actually
+      // granted (an install can be scoped to "selected repositories"). The
+      // dedicated installation-repos endpoint is the only one guaranteed to
+      // match what this connection can actually read/write — :org is
+      // unused here since a GitHub App connection is already bound to
+      // exactly one account.
+      allRepos = await octokit.paginate(octokit.rest.apps.listReposAccessibleToInstallation, {
+        per_page: 100,
+      });
+    } else {
+      // A repo path can't tell you whether ":org" is a real org or the
+      // authenticated user's own login — GitHub has separate endpoints for
+      // each and 404s if you call the wrong one. Ask once, cheaply.
+      const self = await resolveSelf(connectionRow, octokit);
+      allRepos =
+        org === self.login
+          ? await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
+              affiliation: "owner",
+              per_page: 100,
+            })
+          : await octokit.paginate(octokit.rest.repos.listForOrg, {
+              org,
+              per_page: 100,
+            });
+    }
 
     let repos: GitHubRepoSummary[] = allRepos.map((repo) => ({
       fullName: repo.full_name,

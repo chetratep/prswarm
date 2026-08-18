@@ -7,7 +7,8 @@ import type {
   WriteMode,
 } from "@bulk-github-update-tool/shared-types";
 import { apiPost } from "../api/client";
-import { languageExtensionsForPath } from "../lib/contentLanguage";
+import { languageExtensionsForPath, placeholderForPath } from "../lib/contentLanguage";
+import { IconChevronDown, IconChevronUp, IconTrash } from "./icons";
 
 export interface FileEntryValue {
   filePath: string;
@@ -47,6 +48,7 @@ export function FileEntryEditor({
   onMoveDown,
 }: FileEntryEditorProps) {
   const contentExtensions = useMemo(() => languageExtensionsForPath(value.filePath), [value.filePath]);
+  const contentPlaceholder = useMemo(() => placeholderForPath(value.filePath), [value.filePath]);
   const [sourceUrl, setSourceUrl] = useState("");
 
   const fetchContentMutation = useMutation({
@@ -72,7 +74,7 @@ export function FileEntryEditor({
             disabled={!canMoveUp}
             aria-label={`Move file ${index + 1} up`}
           >
-            ▲
+            <IconChevronUp size={15} />
           </button>
           <button
             type="button"
@@ -81,7 +83,7 @@ export function FileEntryEditor({
             disabled={!canMoveDown}
             aria-label={`Move file ${index + 1} down`}
           >
-            ▼
+            <IconChevronDown size={15} />
           </button>
         </div>
         <button
@@ -90,6 +92,7 @@ export function FileEntryEditor({
           onClick={() => onRemove(index)}
           disabled={!canRemove}
         >
+          <IconTrash size={14} />
           Remove
         </button>
       </div>
@@ -156,7 +159,7 @@ export function FileEntryEditor({
           onChange={(content) => onChange(index, { ...value, content })}
           extensions={contentExtensions}
           height="240px"
-          placeholder={"name: PR review\non:\n  pull_request:\n    types: [opened, synchronize]\n"}
+          placeholder={contentPlaceholder}
           className="content-editor"
         />
       </div>

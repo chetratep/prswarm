@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, type FormEvent } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiPost, useSession, SESSION_QUERY_KEY } from "./api/client";
 import { Stepper } from "./components/Stepper";
@@ -9,7 +9,9 @@ import { PreviewPage } from "./pages/PreviewPage";
 import { ConfirmPage } from "./pages/ConfirmPage";
 import { ExecutePage } from "./pages/ExecutePage";
 import { ResultsPage } from "./pages/ResultsPage";
+import { HistoryPage } from "./pages/HistoryPage";
 import { SelectionProvider } from "./state/SelectionContext";
+import { IconHistory, IconUser, LogoMark } from "./components/icons";
 
 // Lazy: DefinePage pulls in CodeMirror + language packages, which roughly
 // quadrupled the bundle (230KB -> 860KB minified) for pages that never touch
@@ -73,6 +75,30 @@ function LoginForm() {
   );
 }
 
+// Shown in the header on every page — the instance/system user this session
+// is signed in as (AUTH_USERNAME, e.g. "admin"), NOT the connected GitHub
+// account. Those are two separate identities: this app's own instance login
+// (optional, off by default — see CLAUDE.md) versus whichever GitHub
+// credential the stored Connection happens to use (shown on the Connect
+// page instead). Falls back to "local" — the same term this app already
+// uses elsewhere (Job.createdBy) for "no instance auth configured, single
+// implicit user".
+function CurrentUserBadge() {
+  const sessionQuery = useSession();
+
+  if (sessionQuery.isLoading) {
+    return null;
+  }
+
+  const username = sessionQuery.data?.username;
+  return (
+    <span className="app-header__user">
+      <IconUser size={15} />
+      Signed in as <strong>{username ?? "local"}</strong>
+    </span>
+  );
+}
+
 function App() {
   const sessionQuery = useSession();
 
@@ -101,7 +127,21 @@ function App() {
     <SelectionProvider>
       <div className="app-shell">
         <header className="app-header">
-          <h1 className="app-header__title">Bulk GitHub Update Tool</h1>
+          <div className="app-header__top">
+            <div className="app-header__brand">
+              <span className="app-header__logo">
+                <LogoMark size={17} />
+              </span>
+              <h1 className="app-header__title">Bulk GitHub Update Tool</h1>
+            </div>
+            <div className="app-header__top-actions">
+              <Link to="/history" className="app-header__nav-link">
+                <IconHistory size={15} />
+                History
+              </Link>
+              <CurrentUserBadge />
+            </div>
+          </div>
           <Stepper />
         </header>
         <main className="app-main">
@@ -126,6 +166,7 @@ function App() {
                 as it streams in. */}
             <Route path="/execute/:jobId" element={<ExecutePage />} />
             <Route path="/results/:jobId" element={<ResultsPage />} />
+            <Route path="/history" element={<HistoryPage />} />
             <Route path="*" element={<Navigate to="/connect" replace />} />
           </Routes>
         </main>
