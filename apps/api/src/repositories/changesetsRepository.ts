@@ -1,11 +1,12 @@
-// Data access for the `change_sets` and `target_selections` tables. Follows
-// the row<->domain-object mapping pattern established in
-// connectionsRepository.ts: snake_case columns <-> camelCase domain fields,
-// JSON-stringify/parse for structured columns, INTEGER<->boolean for flags.
+// Data access for the `change_sets`, `change_set_files`, and
+// `target_selections` tables. Follows the row<->domain-object mapping
+// pattern established in connectionsRepository.ts: snake_case columns <->
+// camelCase domain fields, JSON-stringify/parse for structured columns,
+// INTEGER<->boolean for flags.
 import { randomUUID } from "node:crypto";
 import type {
   ChangeSet,
-  CreateChangeSetRequest,
+  ChangeSetFile,
   RepoFilter,
   TargetSelection,
 } from "@bulk-github-update-tool/shared-types";
@@ -14,11 +15,6 @@ import type { AppDatabase } from "../db.js";
 export interface ChangeSetRow {
   id: string;
   name: string;
-  file_path: string;
-  mode: ChangeSet["mode"];
-  content_source: ChangeSet["contentSource"];
-  content: string;
-  template_vars_schema: string | null;
   branch_strategy: ChangeSet["branchStrategy"];
   commit_strategy: ChangeSet["commitStrategy"];
   commit_message: string;
@@ -31,11 +27,6 @@ function rowToChangeSet(row: ChangeSetRow): ChangeSet {
   return {
     id: row.id,
     name: row.name,
-    filePath: row.file_path,
-    mode: row.mode,
-    contentSource: row.content_source,
-    content: row.content,
-    templateVarsSchema: row.template_vars_schema ? JSON.parse(row.template_vars_schema) : null,
     branchStrategy: row.branch_strategy,
     commitStrategy: row.commit_strategy,
     commitMessage: row.commit_message,
@@ -45,33 +36,26 @@ function rowToChangeSet(row: ChangeSetRow): ChangeSet {
   };
 }
 
-/** contentSource and templateVarsSchema aren't part of the request body —
- * the client never gets to assert "this is a template" itself. The caller
- * (routes/changesets.ts) derives both server-side from the content via
- * extractTemplateVariables and passes the result in here. */
-export interface InsertChangeSetInput extends CreateChangeSetRequest {
-  contentSource: ChangeSet["contentSource"];
-  templateVarsSchema: ChangeSet["templateVarsSchema"];
+export interface InsertChangeSetInput {
+  name: string;
+  branchStrategy: ChangeSet["branchStrategy"];
+  commitStrategy: ChangeSet["commitStrategy"];
+  commitMessage: string;
+  prTitle: string | null;
+  prBody: string | null;
 }
 
 export function insertChangeSet(db: AppDatabase, input: InsertChangeSetInput): ChangeSet {
   const id = randomUUID();
   const createdAt = new Date().toISOString();
-  const { contentSource, templateVarsSchema } = input;
 
   db.prepare(
     `INSERT INTO change_sets
-      (id, name, file_path, mode, content_source, content, template_vars_schema,
-       branch_strategy, commit_strategy, commit_message, pr_title, pr_body, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, name, branch_strategy, commit_strategy, commit_message, pr_title, pr_body, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.name,
-    input.filePath,
-    input.mode,
-    contentSource,
-    input.content,
-    templateVarsSchema === null ? null : JSON.stringify(templateVarsSchema),
     input.branchStrategy,
     input.commitStrategy,
     input.commitMessage,
@@ -83,11 +67,6 @@ export function insertChangeSet(db: AppDatabase, input: InsertChangeSetInput): C
   return {
     id,
     name: input.name,
-    filePath: input.filePath,
-    mode: input.mode,
-    contentSource,
-    content: input.content,
-    templateVarsSchema,
     branchStrategy: input.branchStrategy,
     commitStrategy: input.commitStrategy,
     commitMessage: input.commitMessage,
@@ -101,6 +80,85 @@ export function getChangeSetById(db: AppDatabase, id: string): ChangeSet | null 
   const row = db.prepare("SELECT * FROM change_sets WHERE id = ?").get(id) as ChangeSetRow | undefined;
   return row ? rowToChangeSet(row) : null;
 }
+
+export interface ChangeSetFileRow {
+  id: string;
+  change_set_id: string;
+  order_index: number;
+  file_path: string;
+  mode: ChangeSetFile["mode"];
+  content_source: ChangeSetFile["contentSource"];
+  content: string;
+  template_vars_schema: string | null;
+}
+
+function rowToChangeSetFile(row: ChangeSetFileRow): ChangeSetFile {
+  return {
+    id: row.id,
+    changeSetId: row.change_set_id,
+    orderIndex: row.order_index,
+    filePath: row.file_path,
+    mode: row.mode,
+    contentSource: row.content_source,
+    content: row.content,
+    templateVarsSchema: row.template_vars_schema ? JSON.parse(row.template_vars_schema) : null,
+  };
+}
+
+/** contentSource and templateVarsSchema aren't part of the request body —
+ * the client never gets to assert "this is a template" itself. The caller
+ * (routes/changesets.ts) derives both server-side per file from that
+ * file's own content via extractTemplateVariables. */
+export interface InsertChangeSetFileInput {
+  changeSetId: string;
+  orderIndex: number;
+  filePath: string;
+  mode: ChangeSetFile["mode"];
+  contentSource: ChangeSetFile["contentSource"];
+  content: string;
+  templateVarsSchema: ChangeSetFile["templateVarsSchema"];
+}
+
+export function insertChangeSetFile(db: AppDatabase, input: InsertChangeSetFileInput): ChangeSetFile {
+  const id = randomUUID();
+
+  db.prepare(
+    `INSERT INTO change_set_files
+      (id, change_set_id, order_index, file_path, mode, content_source, content, template_vars_schema)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    input.changeSetId,
+    input.orderIndex,
+    input.filePath,
+    input.mode,
+    input.contentSource,
+    input.content,
+    input.templateVarsSchema === null ? null : JSON.stringify(input.templateVarsSchema)
+  );
+
+  return {
+    id,
+    changeSetId: input.changeSetId,
+    orderIndex: input.orderIndex,
+    filePath: input.filePath,
+    mode: input.mode,
+    contentSource: input.contentSource,
+    content: input.content,
+    templateVarsSchema: input.templateVarsSchema,
+  };
+}
+
+/** Ordered by order_index so callers get files back in the same order the
+ * user arranged them on the Define page. */
+export function getChangeSetFilesByChangeSetId(db: AppDatabase, changeSetId: string): ChangeSetFile[] {
+  const rows = db
+    .prepare("SELECT * FROM change_set_files WHERE change_set_id = ? ORDER BY order_index ASC")
+    .all(changeSetId) as unknown as ChangeSetFileRow[];
+  return rows.map(rowToChangeSetFile);
+}
+
+// --- target_selections: unchanged by this migration ---
 
 export interface TargetSelectionRow {
   id: string;

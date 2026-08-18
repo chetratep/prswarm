@@ -1,8 +1,10 @@
 // Data access for the `repo_runs` table — one row per targeted repo within
-// a job, tracking state from diff preview through to execute-time outcome.
-// Same row<->domain-object mapping style as connectionsRepository.ts:
-// INTEGER<->boolean conversion for the nullable `branch_protected` and
-// non-nullable `direct_to_default` flags.
+// a job, tracking the whole-repo outcome from diff preview through to
+// execute-time result. Per-file diff/content data lives in
+// repo_run_files instead (see repoRunFilesRepository.ts) — this table
+// only tracks the repo-level outcome now that one commit covers every
+// file in a changeset. Same row<->domain-object mapping style as
+// connectionsRepository.ts.
 import { randomUUID } from "node:crypto";
 import type { RepoRun, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
 import type { AppDatabase } from "../db.js";
@@ -12,16 +14,12 @@ export interface RepoRunRow {
   job_id: string;
   repo_full_name: string;
   status: RepoRunStatus;
-  diff_summary: string | null;
-  before_sha: string | null;
-  after_sha: string | null;
   branch_protected: number | null;
   direct_to_default: number;
   commit_sha: string | null;
   pr_url: string | null;
   error_message: string | null;
   attempt_count: number;
-  rendered_content: string | null;
 }
 
 function rowToRepoRun(row: RepoRunRow): RepoRun {
@@ -30,16 +28,12 @@ function rowToRepoRun(row: RepoRunRow): RepoRun {
     jobId: row.job_id,
     repoFullName: row.repo_full_name,
     status: row.status,
-    diffSummary: row.diff_summary,
-    beforeSha: row.before_sha,
-    afterSha: row.after_sha,
     branchProtected: row.branch_protected === null ? null : Boolean(row.branch_protected),
     directToDefault: Boolean(row.direct_to_default),
     commitSha: row.commit_sha,
     prUrl: row.pr_url,
     errorMessage: row.error_message,
     attemptCount: row.attempt_count,
-    renderedContent: row.rendered_content,
   };
 }
 
@@ -47,16 +41,12 @@ export interface InsertRepoRunInput {
   jobId: string;
   repoFullName: string;
   status: RepoRunStatus;
-  diffSummary: string | null;
-  beforeSha: string | null;
-  afterSha: string | null;
   branchProtected: boolean | null;
   directToDefault: boolean;
   commitSha: string | null;
   prUrl: string | null;
   errorMessage: string | null;
   attemptCount: number;
-  renderedContent: string | null;
 }
 
 export function insertRepoRun(db: AppDatabase, input: InsertRepoRunInput): RepoRun {
@@ -64,25 +54,19 @@ export function insertRepoRun(db: AppDatabase, input: InsertRepoRunInput): RepoR
 
   db.prepare(
     `INSERT INTO repo_runs
-      (id, job_id, repo_full_name, status, diff_summary, before_sha, after_sha,
-       branch_protected, direct_to_default, commit_sha, pr_url, error_message, attempt_count,
-       rendered_content)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, job_id, repo_full_name, status, branch_protected, direct_to_default, commit_sha, pr_url, error_message, attempt_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.jobId,
     input.repoFullName,
     input.status,
-    input.diffSummary,
-    input.beforeSha,
-    input.afterSha,
     input.branchProtected === null ? null : input.branchProtected ? 1 : 0,
     input.directToDefault ? 1 : 0,
     input.commitSha,
     input.prUrl,
     input.errorMessage,
-    input.attemptCount,
-    input.renderedContent
+    input.attemptCount
   );
 
   return {
@@ -90,16 +74,12 @@ export function insertRepoRun(db: AppDatabase, input: InsertRepoRunInput): RepoR
     jobId: input.jobId,
     repoFullName: input.repoFullName,
     status: input.status,
-    diffSummary: input.diffSummary,
-    beforeSha: input.beforeSha,
-    afterSha: input.afterSha,
     branchProtected: input.branchProtected,
     directToDefault: input.directToDefault,
     commitSha: input.commitSha,
     prUrl: input.prUrl,
     errorMessage: input.errorMessage,
     attemptCount: input.attemptCount,
-    renderedContent: input.renderedContent,
   };
 }
 
@@ -115,36 +95,29 @@ export function getRepoRunById(db: AppDatabase, id: string): RepoRun | null {
 
 export interface RepoRunUpdate {
   status?: RepoRunStatus;
-  diffSummary?: string | null;
-  beforeSha?: string | null;
-  afterSha?: string | null;
   branchProtected?: boolean | null;
   directToDefault?: boolean;
   commitSha?: string | null;
   prUrl?: string | null;
   errorMessage?: string | null;
   attemptCount?: number;
-  renderedContent?: string | null;
 }
 
 const REPO_RUN_UPDATE_COLUMN_MAP: Record<keyof RepoRunUpdate, string> = {
   status: "status",
-  diffSummary: "diff_summary",
-  beforeSha: "before_sha",
-  afterSha: "after_sha",
   branchProtected: "branch_protected",
   directToDefault: "direct_to_default",
   commitSha: "commit_sha",
   prUrl: "pr_url",
   errorMessage: "error_message",
   attemptCount: "attempt_count",
-  renderedContent: "rendered_content",
 };
 
-/** Partial update by repo_run id — used at execute time to layer per-repo
- * outcomes (SUCCESS/FAILED/SKIPPED + commit/PR/error detail) on top of the
- * row created during diff preview. Only columns present as keys in
- * `update` are touched; a key present with value `null` clears that column. */
+/** Partial update by repo_run id — used at execute time to layer the
+ * repo-level outcome (SUCCESS/FAILED/SKIPPED + commit/PR/error detail) on
+ * top of the row created during diff preview. Only columns present as keys
+ * in `update` are touched; a key present with value `null` clears that
+ * column. */
 export function updateRepoRun(db: AppDatabase, id: string, update: RepoRunUpdate): RepoRun {
   const keys = Object.keys(update) as (keyof RepoRunUpdate)[];
   if (keys.length > 0) {
@@ -157,9 +130,6 @@ export function updateRepoRun(db: AppDatabase, id: string, update: RepoRunUpdate
       if (key === "directToDefault") {
         return value ? 1 : 0;
       }
-      // Every other column is string | number | null already — the cast just
-      // tells TS what we've already ruled out via the two branches above,
-      // since narrowing doesn't propagate through a generic `key` lookup.
       return (value as string | number | null | undefined) ?? null;
     });
     db.prepare(`UPDATE repo_runs SET ${setClause} WHERE id = ?`).run(...values, id);
