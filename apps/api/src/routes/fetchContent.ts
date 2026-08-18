@@ -13,6 +13,9 @@ import net from "node:net";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { FetchContentRequest, FetchContentResponse } from "@bulk-github-update-tool/shared-types";
+import type { AppDatabase } from "../db.js";
+import { resolveCurrentUser } from "../auth/currentUser.js";
+import { getCurrentConnection } from "../repositories/connectionsRepository.js";
 
 const MAX_CONTENT_BYTES = 5 * 1024 * 1024; // 5MB
 const FETCH_TIMEOUT_MS = 10_000;
@@ -44,11 +47,20 @@ function isPrivateOrLoopbackIp(address: string, family: number): boolean {
   return false;
 }
 
-class UnfetchableUrlError extends Error {}
+export class UnfetchableUrlError extends Error {}
 
-async function assertUrlIsFetchable(url: URL): Promise<void> {
+/** `allowedHost` — when set, this one exact hostname is exempted from the
+ * private/loopback-range rejection below. Used to let "load from URL"
+ * reach the requesting user's own configured GitHub Enterprise Server host
+ * (often a private-range address) without reopening the guard to arbitrary
+ * internal infrastructure: every other private-range host, and every
+ * *other* redirect hop, is still rejected exactly as before. */
+export async function assertUrlIsFetchable(url: URL, allowedHost: string | null): Promise<void> {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new UnfetchableUrlError("Only http(s) URLs are supported");
+  }
+  if (allowedHost && url.hostname === allowedHost) {
+    return;
   }
   let resolved: { address: string; family: number };
   try {
@@ -63,11 +75,17 @@ async function assertUrlIsFetchable(url: URL): Promise<void> {
 
 /** Follows redirects manually (not via fetch's own redirect:"follow") so
  * every hop is re-validated — a public first URL that 302s to an internal
- * address is exactly the bypass a naive SSRF guard misses. */
-async function fetchWithGuardedRedirects(initialUrl: URL, signal: AbortSignal): Promise<Response> {
+ * address is exactly the bypass a naive SSRF guard misses. A redirect away
+ * from the allowlisted host to something else is still re-checked on every
+ * hop, so it's still blocked unless the new host also happens to match. */
+async function fetchWithGuardedRedirects(
+  initialUrl: URL,
+  signal: AbortSignal,
+  allowedHost: string | null
+): Promise<Response> {
   let current = initialUrl;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    await assertUrlIsFetchable(current);
+    await assertUrlIsFetchable(current, allowedHost);
     const res = await fetch(current, { signal, redirect: "manual" });
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
@@ -80,7 +98,16 @@ async function fetchWithGuardedRedirects(initialUrl: URL, signal: AbortSignal): 
   throw new UnfetchableUrlError("Too many redirects");
 }
 
-export async function registerFetchContentRoutes(app: FastifyInstance): Promise<void> {
+export interface FetchContentRouteOptions {
+  db: AppDatabase;
+}
+
+export async function registerFetchContentRoutes(
+  app: FastifyInstance,
+  opts: FetchContentRouteOptions
+): Promise<void> {
+  const { db } = opts;
+
   app.post<{ Body: FetchContentRequest }>("/fetch-content", async (request, reply) => {
     const parsed = fetchContentBodySchema.safeParse(request.body);
     if (!parsed.success) {
@@ -94,11 +121,14 @@ export async function registerFetchContentRoutes(app: FastifyInstance): Promise<
       return reply.code(400).send({ error: "Invalid URL" });
     }
 
+    const currentUser = resolveCurrentUser(request);
+    const allowedHost = getCurrentConnection(db, currentUser.userId)?.host ?? null;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const res = await fetchWithGuardedRedirects(target, controller.signal);
+      const res = await fetchWithGuardedRedirects(target, controller.signal, allowedHost);
 
       if (!res.ok) {
         return reply.code(502).send({ error: `Fetch failed: ${res.status} ${res.statusText}` });

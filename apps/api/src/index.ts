@@ -70,7 +70,7 @@ async function main(): Promise<void> {
       await registerChangesetsRoutes(apiScope, { db });
       await registerJobsRoutes(apiScope, { db });
       await registerUsersRoutes(apiScope, { db });
-      await registerFetchContentRoutes(apiScope);
+      await registerFetchContentRoutes(apiScope, { db });
     },
     { prefix: "/api" }
   );
