@@ -15,6 +15,7 @@ function noteUnauthorized() {
     authRequired: old?.authRequired ?? true,
     authenticated: false,
     username: null,
+    role: null,
   }));
 }
 
