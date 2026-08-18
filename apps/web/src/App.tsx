@@ -10,6 +10,7 @@ import { ConfirmPage } from "./pages/ConfirmPage";
 import { ExecutePage } from "./pages/ExecutePage";
 import { ResultsPage } from "./pages/ResultsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { SelectionProvider } from "./state/SelectionContext";
 import { IconHistory, IconUser, LogoMark } from "./components/icons";
 
@@ -123,6 +124,18 @@ function CurrentUserBadge() {
   );
 }
 
+function AdminUsersNavLink() {
+  const sessionQuery = useSession();
+  if (sessionQuery.data?.role !== "admin") {
+    return null;
+  }
+  return (
+    <Link to="/admin/users" className="app-header__nav-link">
+      Users
+    </Link>
+  );
+}
+
 function App() {
   const sessionQuery = useSession();
 
@@ -163,6 +176,7 @@ function App() {
                 <IconHistory size={15} />
                 History
               </Link>
+              <AdminUsersNavLink />
               <CurrentUserBadge />
             </div>
           </div>
@@ -191,6 +205,7 @@ function App() {
             <Route path="/execute/:jobId" element={<ExecutePage />} />
             <Route path="/results/:jobId" element={<ResultsPage />} />
             <Route path="/history" element={<HistoryPage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="*" element={<Navigate to="/connect" replace />} />
           </Routes>
         </main>
