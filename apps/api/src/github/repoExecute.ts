@@ -64,6 +64,19 @@ export async function executeRepoRun(
   // failure mode, caught the same way a GitHub API error would be, and
   // turned into a FAILED update rather than an unhandled rejection.
   try {
+    // No repo_run_file rows at all means preview never got far enough to
+    // create them (e.g. the repo itself couldn't be fetched) — not the same
+    // as "every file was legitimately skippable". Must be distinguished
+    // from the all-skipped case below, otherwise a retry silently turns a
+    // repo that never previewed into a no-op SKIPPED success.
+    if (repoRunFiles.length === 0) {
+      return {
+        status: "FAILED",
+        errorMessage: "Cannot execute: no file preview data exists for this repo — re-run preview before retrying.",
+        attemptCount: repoRun.attemptCount + 1,
+      };
+    }
+
     const changeSetFileById = new Map(changeSetFiles.map((f) => [f.id, f]));
     const filesToCommit: FileToCommit[] = repoRunFiles.map((repoRunFile) => {
       const changeSetFile = changeSetFileById.get(repoRunFile.changeSetFileId);
@@ -74,6 +87,26 @@ export async function executeRepoRun(
       }
       return { repoRunFile, mode: changeSetFile.mode };
     });
+
+    // A file whose PREVIEW failed (errorMessage set) or that never got
+    // rendered content has no valid content to write. Without this check,
+    // isSkipped()'s guards (which all require beforeSha !== null) let an
+    // unpreviewed file fall through as "non-skipped" and flow straight into
+    // createBlob with an empty string — silently committing a blank file
+    // that was never reviewed. This must run over ALL filesToCommit, not
+    // just whatever would otherwise be considered non-skipped.
+    const unpreviewedFiles = filesToCommit.filter(
+      (file) => file.repoRunFile.errorMessage !== null || file.repoRunFile.renderedContent === null
+    );
+    if (unpreviewedFiles.length > 0) {
+      return {
+        status: "FAILED",
+        errorMessage: `Cannot execute: ${unpreviewedFiles.length} file(s) never had a valid preview (${unpreviewedFiles
+          .map((f) => f.repoRunFile.filePath)
+          .join(", ")}) — re-run preview before retrying.`,
+        attemptCount: repoRun.attemptCount + 1,
+      };
+    }
 
     const nonSkippedFiles = filesToCommit.filter((file) => !isSkipped(file));
 

@@ -230,6 +230,44 @@ describe("executeRepoRun", () => {
     expect(calls).not.toContain("git.createRef");
   });
 
+  it("returns FAILED and makes no GitHub calls when a file's preview failed (retry-after-preview-failure guard)", async () => {
+    const { octokit, calls } = makeOctokit();
+    const changeSetFile = stubChangeSetFile({ id: "file-a", filePath: "a.yml" });
+    // Simulates a repo_run_file left over from a failed preview: an error
+    // message was recorded and renderedContent was never populated.
+    const repoRunFile = stubRepoRunFile({
+      changeSetFileId: "file-a",
+      filePath: "a.yml",
+      errorMessage: "Path is a directory, not a file",
+      renderedContent: null,
+      beforeSha: null,
+      diffSummary: null,
+    });
+
+    const result = await executeRepoRun(octokit, stubChangeSet(), [changeSetFile], stubRepoRun(), [
+      repoRunFile,
+    ]);
+
+    expect(result.status).toBe("FAILED");
+    expect(result.errorMessage).toContain("a.yml");
+    expect(calls).not.toContain("git.createBlob:");
+    expect(calls.filter((c) => c.startsWith("git.createBlob"))).toEqual([]);
+    expect(calls).not.toContain("git.createCommit");
+    expect(calls).not.toContain("git.updateRef");
+    expect(calls).not.toContain("git.createRef");
+    expect(calls).toEqual([]);
+  });
+
+  it("returns FAILED (not SKIPPED) and makes no GitHub calls when repoRunFiles is empty (retry of a repo whose preview never created file rows)", async () => {
+    const { octokit, calls } = makeOctokit();
+
+    const result = await executeRepoRun(octokit, stubChangeSet(), [stubChangeSetFile()], stubRepoRun(), []);
+
+    expect(result.status).toBe("FAILED");
+    expect(result.status).not.toBe("SKIPPED");
+    expect(calls).toEqual([]);
+  });
+
   it("resolves to FAILED (never rejects) when a repo_run_file references a change_set_file that doesn't exist", async () => {
     const { octokit, calls } = makeOctokit();
     const changeSetFile = stubChangeSetFile({ id: "file-a" });
