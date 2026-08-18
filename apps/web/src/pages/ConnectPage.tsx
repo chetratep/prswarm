@@ -62,10 +62,14 @@ export function ConnectPage() {
   // --- PAT flow (unchanged behavior, just now lives under a tab) ---
 
   const [token, setToken] = useState("");
+  const [host, setHost] = useState("");
 
   const connectPatMutation = useMutation({
     mutationFn: (patToken: string) =>
-      apiPost<ConnectPatResponse>("/api/connections", { token: patToken }),
+      apiPost<ConnectPatResponse>("/api/connections", {
+        token: patToken,
+        host: host.trim() || undefined,
+      }),
     onSuccess: (data) => {
       queryClient.setQueryData<Connection | null>(CONNECTION_QUERY_KEY, data.connection);
       setToken("");
@@ -90,6 +94,7 @@ export function ConnectPage() {
       apiPost<ListGithubAppInstallationsResponse>("/api/connections/github-app/installations", {
         appId: appId.trim(),
         privateKeyPem: privateKeyPem.trim(),
+        host: host.trim() || undefined,
       }),
   });
 
@@ -99,6 +104,7 @@ export function ConnectPage() {
         appId: appId.trim(),
         privateKeyPem: privateKeyPem.trim(),
         installationId,
+        host: host.trim() || undefined,
       }),
     onSuccess: (data) => {
       queryClient.setQueryData<Connection | null>(CONNECTION_QUERY_KEY, data.connection);
@@ -148,6 +154,7 @@ export function ConnectPage() {
           <p>
             <strong>{connection.login ?? "(no login)"}</strong>{" "}
             <span className="badge">{connection.type}</span>
+            {connection.host && <span className="badge badge--muted">{connection.host}</span>}
           </p>
           <p className="connected-card__meta">
             Connection ID: <code>{connection.id}</code>
@@ -272,6 +279,19 @@ export function ConnectPage() {
                 required
               />
             </label>
+            <label className="form__field">
+              <span>
+                GitHub Enterprise Server hostname <span className="optional-mark">(optional)</span>
+              </span>
+              <input
+                type="text"
+                name="host"
+                autoComplete="off"
+                value={host}
+                onChange={(event) => setHost(event.target.value)}
+                placeholder="github.example.com/api/v3 — leave blank for github.com"
+              />
+            </label>
             {connectPatMutation.isError && (
               <p className="form__error" role="alert">
                 {connectPatMutation.error instanceof Error
@@ -326,6 +346,19 @@ export function ConnectPage() {
                 onChange={(event) => setPrivateKeyPem(event.target.value)}
                 placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"
                 required
+              />
+            </label>
+            <label className="form__field">
+              <span>
+                GitHub Enterprise Server hostname <span className="optional-mark">(optional)</span>
+              </span>
+              <input
+                type="text"
+                name="host"
+                autoComplete="off"
+                value={host}
+                onChange={(event) => setHost(event.target.value)}
+                placeholder="github.example.com/api/v3 — leave blank for github.com"
               />
             </label>
             {listInstallationsMutation.isError && (

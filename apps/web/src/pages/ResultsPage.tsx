@@ -1,8 +1,8 @@
 import { Fragment, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { JobView, RetryJobRequest } from "@bulk-github-update-tool/shared-types";
-import { apiGet, apiPost } from "../api/client";
+import type { Connection, JobView, RetryJobRequest } from "@bulk-github-update-tool/shared-types";
+import { apiGet, apiGetOrNull, apiPost } from "../api/client";
 import {
   deriveDiffStatus,
   DIFF_STATUS_ICON,
@@ -40,6 +40,12 @@ export function ResultsPage() {
     queryFn: () => apiGet<JobView>(`/api/jobs/${jobId}`),
     enabled: !!jobId,
   });
+
+  const connectionQuery = useQuery({
+    queryKey: ["connection", "current"],
+    queryFn: () => apiGetOrNull<Connection>("/api/connections/current"),
+  });
+  const githubHost = (connectionQuery.data?.host || "github.com").replace(/\/api\/v3\/?$/, "");
 
   const retryMutation = useMutation({
     mutationFn: () => {
@@ -172,7 +178,7 @@ export function ResultsPage() {
                     )}
                     {run.commitSha && (
                       <a
-                        href={`https://github.com/${run.repoFullName}/commit/${run.commitSha}`}
+                        href={`https://${githubHost}/${run.repoFullName}/commit/${run.commitSha}`}
                         target="_blank"
                         rel="noreferrer"
                       >
