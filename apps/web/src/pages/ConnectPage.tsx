@@ -42,6 +42,13 @@ export function ConnectPage() {
     queryFn: () => apiGetOrNull<Connection>("/api/connections/current"),
   });
 
+  // Once a connection exists, the Connected card takes over — this lets the
+  // user step back to the form to submit different credentials. Submitting
+  // replaces the stored connection outright (see connectionsRepository.ts's
+  // replaceWith* functions), so no separate disconnect/delete endpoint is
+  // needed for this.
+  const [showReconnectForm, setShowReconnectForm] = useState(false);
+
   // --- PAT flow (unchanged behavior, just now lives under a tab) ---
 
   const [token, setToken] = useState("");
@@ -52,6 +59,7 @@ export function ConnectPage() {
     onSuccess: (data) => {
       queryClient.setQueryData<Connection | null>(CONNECTION_QUERY_KEY, data.connection);
       setToken("");
+      setShowReconnectForm(false);
     },
   });
 
@@ -84,6 +92,7 @@ export function ConnectPage() {
       }),
     onSuccess: (data) => {
       queryClient.setQueryData<Connection | null>(CONNECTION_QUERY_KEY, data.connection);
+      setShowReconnectForm(false);
     },
     onSettled: () => setConnectingInstallationId(null),
   });
@@ -117,7 +126,7 @@ export function ConnectPage() {
     connectAppMutation.data?.connection ??
     null;
 
-  if (connection) {
+  if (connection && !showReconnectForm) {
     return (
       <div className="page">
         <h2>Connect</h2>
@@ -130,9 +139,18 @@ export function ConnectPage() {
           <p className="connected-card__meta">
             Connection ID: <code>{connection.id}</code>
           </p>
-          <Link to="/select" className="button button--primary">
-            Continue to select repos
-          </Link>
+          <div className="connected-card__actions">
+            <Link to="/select" className="button button--primary">
+              Continue to select repos
+            </Link>
+            <button
+              type="button"
+              className="button button--secondary"
+              onClick={() => setShowReconnectForm(true)}
+            >
+              Use different credentials
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -144,6 +162,19 @@ export function ConnectPage() {
   return (
     <div className="page">
       <h2>Connect</h2>
+
+      {connection && (
+        <p className="page__intro">
+          Currently connected as <strong>{connection.login ?? "(no login)"}</strong>.{" "}
+          <button
+            type="button"
+            className="button-link"
+            onClick={() => setShowReconnectForm(false)}
+          >
+            Cancel and keep this connection
+          </button>
+        </p>
+      )}
 
       <div className="method-tabs" role="tablist" aria-label="Connection method">
         <button

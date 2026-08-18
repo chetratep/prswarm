@@ -426,6 +426,27 @@ code {
   margin-top: 0.5rem;
 }
 
+.connected-card__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.button-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.button-link:hover {
+  color: var(--color-primary-hover);
+}
+
 /* Select page */
 
 .selection-summary {
