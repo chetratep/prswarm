@@ -1,7 +1,9 @@
+import { Fragment, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { JobStatus, JobView, RetryJobRequest } from "@bulk-github-update-tool/shared-types";
 import { apiGet, apiPost } from "../api/client";
+import { deriveDiffStatus, groupRepoRunFilesByRepoRunId, type DiffStatus } from "../lib/repoRunStatus";
 
 const STATUS_LABEL: Record<JobStatus, string> = {
   DRAFT: "Draft",
@@ -13,9 +15,29 @@ const STATUS_LABEL: Record<JobStatus, string> = {
   FAILED: "Failed",
 };
 
+const DIFF_STATUS_LABEL: Record<DiffStatus, string> = {
+  error: "Error",
+  new: "New file",
+  unchanged: "Unchanged",
+  modified: "Modified",
+};
+
 export function ResultsPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
+  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
+
+  function toggleRepo(runId: string) {
+    setExpandedRepos((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+      }
+      return next;
+    });
+  }
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -66,7 +88,8 @@ export function ResultsPage() {
     );
   }
 
-  const { job, repoRuns } = jobQuery.data;
+  const { job, repoRuns, repoRunFiles } = jobQuery.data;
+  const filesByRepoRunId = groupRepoRunFilesByRepoRunId(repoRunFiles);
   const succeeded = repoRuns.filter((run) => run.status === "SUCCESS").length;
   const skipped = repoRuns.filter((run) => run.status === "SKIPPED").length;
   const failed = repoRuns.filter((run) => run.status === "FAILED").length;
@@ -114,31 +137,78 @@ export function ResultsPage() {
           </tr>
         </thead>
         <tbody>
-          {repoRuns.map((run) => (
-            <tr key={run.id}>
-              <td className="results-table__repo">{run.repoFullName}</td>
-              <td>{run.status}</td>
-              <td>
-                {run.status === "FAILED" && run.errorMessage && (
-                  <span className="form__error-inline">{run.errorMessage}</span>
+          {repoRuns.map((run) => {
+            const files = filesByRepoRunId.get(run.id) ?? [];
+            const isOpen = expandedRepos.has(run.id);
+            return (
+              <Fragment key={run.id}>
+                <tr>
+                  <td className="results-table__repo">
+                    <button
+                      type="button"
+                      className="repo-run__header"
+                      onClick={() => toggleRepo(run.id)}
+                      aria-expanded={isOpen}
+                      disabled={files.length === 0}
+                    >
+                      <span className="repo-run__name">{run.repoFullName}</span>
+                      {files.length > 0 && (
+                        <span className="repo-run__toggle">{isOpen ? "▲" : "▼"}</span>
+                      )}
+                    </button>
+                  </td>
+                  <td>{run.status}</td>
+                  <td>
+                    {run.status === "FAILED" && run.errorMessage && (
+                      <span className="form__error-inline">{run.errorMessage}</span>
+                    )}
+                    {run.commitSha && (
+                      <a
+                        href={`https://github.com/${run.repoFullName}/commit/${run.commitSha}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {run.commitSha.slice(0, 7)}
+                      </a>
+                    )}
+                    {run.prUrl && (
+                      <a href={run.prUrl} target="_blank" rel="noreferrer">
+                        View PR
+                      </a>
+                    )}
+                  </td>
+                </tr>
+                {isOpen && files.length > 0 && (
+                  <tr>
+                    <td colSpan={3}>
+                      {/* Preview-time diff status per file — not whether this
+                          specific file was actually written at execute time.
+                          repo_run_files rows are write-once at preview, so
+                          per-file execute outcomes aren't persisted anywhere;
+                          this shows what was part of the changeset and what
+                          kind of change it represented, not the final
+                          per-file write result. */}
+                      <ul className="repo-run-file-list">
+                        {files.map((file) => {
+                          const status = deriveDiffStatus(file);
+                          return (
+                            <li key={file.id} className="repo-run-file">
+                              <span className="repo-run-file__header">
+                                <span className="repo-run-file__path">{file.filePath}</span>
+                                <span className={`chip chip--${status}`}>
+                                  {DIFF_STATUS_LABEL[status]}
+                                </span>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </td>
+                  </tr>
                 )}
-                {run.commitSha && (
-                  <a
-                    href={`https://github.com/${run.repoFullName}/commit/${run.commitSha}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {run.commitSha.slice(0, 7)}
-                  </a>
-                )}
-                {run.prUrl && (
-                  <a href={run.prUrl} target="_blank" rel="noreferrer">
-                    View PR
-                  </a>
-                )}
-              </td>
-            </tr>
-          ))}
+              </Fragment>
+            );
+          })}
           {repoRuns.length === 0 && (
             <tr>
               <td colSpan={3}>No repos in this job.</td>
