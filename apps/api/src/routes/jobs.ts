@@ -28,6 +28,7 @@ import type {
   RetryJobRequest,
 } from "@bulk-github-update-tool/shared-types";
 import type { AppDatabase } from "../db.js";
+import { resolveCurrentUser } from "../auth/currentUser.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { runJobExecution } from "../jobQueue.js";
 import { subscribeToJob } from "../jobEventBus.js";
@@ -40,9 +41,13 @@ export interface JobsRouteOptions {
   db: AppDatabase;
 }
 
-async function getOctokitOr400(db: AppDatabase, reply: FastifyReply): Promise<Octokit | undefined> {
+async function getOctokitOr400(
+  db: AppDatabase,
+  userId: string,
+  reply: FastifyReply
+): Promise<Octokit | undefined> {
   try {
-    return await loadOctokitForCurrentConnection(db);
+    return await loadOctokitForCurrentConnection(db, userId);
   } catch (err) {
     if (err instanceof NoConnectionError) {
       reply.code(400).send({ error: err.message });
@@ -73,8 +78,10 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
   // (files, repos, orgs, success/skipped/failed) rather than the full
   // JobView every row would need for a table — that's what GET /jobs/:id
   // (via the Results page) is for once a run is picked.
-  app.get("/jobs", async (): Promise<ListJobsResponse> => {
-    const jobs = getAllJobsOrderedByCreatedAtDesc(db);
+  app.get("/jobs", async (request): Promise<ListJobsResponse> => {
+    const currentUser = resolveCurrentUser(request);
+    const allJobs = getAllJobsOrderedByCreatedAtDesc(db);
+    const jobs = currentUser.role === "admin" ? allJobs : allJobs.filter((job) => job.createdBy === currentUser.userId);
 
     const entries: JobHistoryEntry[] = jobs.map((job) => {
       const changeSet = getChangeSetById(db, job.changeSetId);
@@ -101,6 +108,10 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
     const job = getJobById(db, request.params.id);
     if (!job) {
       return reply.code(404).send({ error: "Job not found" });
+    }
+    const currentUser = resolveCurrentUser(request);
+    if (currentUser.role !== "admin" && job.createdBy !== currentUser.userId) {
+      return reply.code(403).send({ error: "You don't have access to this job" });
     }
     const repoRuns = getRepoRunsByJobId(db, job.id);
     const repoRunFiles = getRepoRunFilesByJobId(db, job.id);
@@ -132,6 +143,11 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
         return reply.code(404).send({ error: "Change set not found for this job" });
       }
 
+      const currentUser = resolveCurrentUser(request);
+      if (currentUser.role !== "admin" && job.createdBy !== currentUser.userId) {
+        return reply.code(403).send({ error: "You don't have access to this job" });
+      }
+
       // Nothing left to do if every repo_run has already moved past
       // DIFF_COMPUTED (the only status runJobExecution(..., ["DIFF_COMPUTED"])
       // below picks up). Without this guard, re-clicking "Confirm & run" on a
@@ -148,7 +164,7 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
         });
       }
 
-      const octokit = await getOctokitOr400(db, reply);
+      const octokit = await getOctokitOr400(db, job.createdBy, reply);
       if (!octokit) return reply;
 
       const nowStart = new Date().toISOString();
@@ -196,7 +212,12 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
         return reply.code(404).send({ error: "Change set not found for this job" });
       }
 
-      const octokit = await getOctokitOr400(db, reply);
+      const currentUser = resolveCurrentUser(request);
+      if (currentUser.role !== "admin" && job.createdBy !== currentUser.userId) {
+        return reply.code(403).send({ error: "You don't have access to this job" });
+      }
+
+      const octokit = await getOctokitOr400(db, job.createdBy, reply);
       if (!octokit) return reply;
 
       const nowStart = new Date().toISOString();

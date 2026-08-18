@@ -73,7 +73,13 @@ export async function runJobExecution(
 
     const changeSetFiles = getChangeSetFilesByChangeSetId(db, changeSet.id);
 
-    const octokit = await loadOctokitForCurrentConnection(db);
+    // Always the job's OWN creator's connection, never whoever triggered
+    // this run (which could be a different user retrying, or an admin) —
+    // the diff/preview this job's repo_runs hold was computed against that
+    // specific credential's view of the repos; executing under a
+    // different one could hit different actual permissions than what was
+    // reviewed. See the design spec's "execution credential" section.
+    const octokit = await loadOctokitForCurrentConnection(db, job.createdBy);
 
     // The route handler already persisted RUNNING (and startedAt) before
     // calling us. Publish it anyway: an SSE client that connects after the
