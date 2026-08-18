@@ -100,3 +100,12 @@ export function updateJob(db: AppDatabase, id: string, update: JobUpdate): Job {
   }
   return updated;
 }
+
+/** One-time backfill: jobs created before real users existed are stamped
+ * the literal string "local" for created_by. Reassigns them to the
+ * bootstrap admin so they don't vanish from anyone's history once
+ * ownership-scoped history filtering ships. Idempotent — a second call
+ * finds nothing left with created_by = 'local'. */
+export function reassignLegacyJobs(db: AppDatabase, adminUserId: string): void {
+  db.prepare("UPDATE jobs SET created_by = ? WHERE created_by = 'local'").run(adminUserId);
+}
