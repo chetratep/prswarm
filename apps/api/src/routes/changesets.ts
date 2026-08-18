@@ -83,35 +83,45 @@ export async function registerChangesetsRoutes(
       return reply.code(400).send({ error: parsed.error.message });
     }
 
-    const changeSet = insertChangeSet(db, {
-      name: parsed.data.name,
-      branchStrategy: parsed.data.branchStrategy,
-      commitStrategy: parsed.data.commitStrategy,
-      commitMessage: parsed.data.commitMessage,
-      prTitle: parsed.data.prTitle,
-      prBody: parsed.data.prBody,
-    });
-
-    // contentSource/templateVarsSchema are derived from each file's own
-    // content, server-side, never from a client-supplied flag — same
-    // extractTemplateVariables function the frontend uses, so the two can
-    // never disagree about what counts as a template variable.
-    parsed.data.files.forEach((file, index) => {
-      const variables = extractTemplateVariables(file.content);
-      const contentSource = variables.length > 0 ? "TEMPLATE" : "STATIC";
-      const templateVarsSchema =
-        contentSource === "TEMPLATE" ? Object.fromEntries(variables.map((v) => [v, ""])) : null;
-
-      insertChangeSetFile(db, {
-        changeSetId: changeSet.id,
-        orderIndex: index,
-        filePath: file.filePath,
-        mode: file.mode,
-        contentSource,
-        content: file.content,
-        templateVarsSchema,
+    // Wrapped in a transaction: the changeset row and all its file rows
+    // must commit together or not at all. Without this, a throw partway
+    // through the files loop (e.g. a transient SQLite error) would leave
+    // a changeset with only some of its files persisted — a silent,
+    // partial, inconsistent changeset with nothing to distinguish it from
+    // a clean one.
+    const changeSet = db.transaction(() => {
+      const changeSet = insertChangeSet(db, {
+        name: parsed.data.name,
+        branchStrategy: parsed.data.branchStrategy,
+        commitStrategy: parsed.data.commitStrategy,
+        commitMessage: parsed.data.commitMessage,
+        prTitle: parsed.data.prTitle,
+        prBody: parsed.data.prBody,
       });
-    });
+
+      // contentSource/templateVarsSchema are derived from each file's own
+      // content, server-side, never from a client-supplied flag — same
+      // extractTemplateVariables function the frontend uses, so the two
+      // can never disagree about what counts as a template variable.
+      parsed.data.files.forEach((file, index) => {
+        const variables = extractTemplateVariables(file.content);
+        const contentSource = variables.length > 0 ? "TEMPLATE" : "STATIC";
+        const templateVarsSchema =
+          contentSource === "TEMPLATE" ? Object.fromEntries(variables.map((v) => [v, ""])) : null;
+
+        insertChangeSetFile(db, {
+          changeSetId: changeSet.id,
+          orderIndex: index,
+          filePath: file.filePath,
+          mode: file.mode,
+          contentSource,
+          content: file.content,
+          templateVarsSchema,
+        });
+      });
+
+      return changeSet;
+    })();
 
     const response: CreateChangeSetResponse = { changeSet };
     return response;
