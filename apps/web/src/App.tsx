@@ -21,6 +21,7 @@ const DefinePage = lazy(() => import("./pages/DefinePage").then((m) => ({ defaul
 
 function LoginForm() {
   const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -31,15 +32,24 @@ function LoginForm() {
     },
   });
 
+  const signupMutation = useMutation({
+    mutationFn: () => apiPost<{ user: unknown }>("/api/signup", { username, password }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+    },
+  });
+
+  const activeMutation = mode === "login" ? loginMutation : signupMutation;
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    loginMutation.mutate();
+    activeMutation.mutate();
   }
 
   return (
     <div className="login-screen">
       <form className="form login-form" onSubmit={handleSubmit}>
-        <h1>Sign in</h1>
+        <h1>{mode === "login" ? "Sign in" : "Create an account"}</h1>
         <label className="form__field">
           <span>Username</span>
           <input
@@ -56,19 +66,33 @@ function LoginForm() {
           <input
             type="password"
             name="password"
-            autoComplete="current-password"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
+            minLength={mode === "signup" ? 8 : undefined}
           />
         </label>
-        {loginMutation.isError && (
+        {activeMutation.isError && (
           <p className="form__error" role="alert">
-            {loginMutation.error instanceof Error ? loginMutation.error.message : "Login failed."}
+            {activeMutation.error instanceof Error ? activeMutation.error.message : "Something went wrong."}
           </p>
         )}
-        <button type="submit" className="button button--primary" disabled={loginMutation.isPending}>
-          {loginMutation.isPending ? "Signing in…" : "Sign in"}
+        <button type="submit" className="button button--primary" disabled={activeMutation.isPending}>
+          {activeMutation.isPending
+            ? mode === "login"
+              ? "Signing in…"
+              : "Creating account…"
+            : mode === "login"
+              ? "Sign in"
+              : "Create account"}
+        </button>
+        <button
+          type="button"
+          className="button-link"
+          onClick={() => setMode(mode === "login" ? "signup" : "login")}
+        >
+          {mode === "login" ? "Need an account? Sign up" : "Already have an account? Sign in"}
         </button>
       </form>
     </div>
