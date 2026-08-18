@@ -10,6 +10,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
+import { bootstrapAuth } from "./auth/bootstrap.js";
 import { registerSession } from "./auth/session.js";
 import { assertEncryptionKeyConfigured } from "./crypto.js";
 import { openDatabase } from "./db.js";
@@ -46,6 +47,12 @@ async function main(): Promise<void> {
 
   const db = openDatabase(databasePath);
 
+  bootstrapAuth(db, {
+    authEnabled,
+    authUsername: process.env.AUTH_USERNAME,
+    authPasswordHash: process.env.AUTH_PASSWORD_HASH,
+  });
+
   const app = Fastify({ logger: true });
 
   await registerSession(app, {
@@ -56,11 +63,7 @@ async function main(): Promise<void> {
   await app.register(
     async (apiScope) => {
       await registerHealthRoutes(apiScope);
-      await registerAuthRoutes(apiScope, {
-        authEnabled,
-        authUsername: process.env.AUTH_USERNAME,
-        authPasswordHash: process.env.AUTH_PASSWORD_HASH,
-      });
+      await registerAuthRoutes(apiScope, { authEnabled, db });
       await registerConnectionsRoutes(apiScope, { db });
       await registerGithubRoutes(apiScope, { db });
       await registerChangesetsRoutes(apiScope, { db });
