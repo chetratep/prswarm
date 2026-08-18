@@ -22,6 +22,7 @@ import { registerFetchContentRoutes } from "./routes/fetchContent.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
+import { registerUsersRoutes } from "./routes/users.js";
 
 // Both `bun run dev`/`start` and the Dockerfile's CMD run this file
 // straight out of apps/api/src (Bun executes TypeScript directly, no build
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
       await registerGithubRoutes(apiScope, { db });
       await registerChangesetsRoutes(apiScope, { db });
       await registerJobsRoutes(apiScope, { db });
+      await registerUsersRoutes(apiScope, { db });
       await registerFetchContentRoutes(apiScope);
     },
     { prefix: "/api" }

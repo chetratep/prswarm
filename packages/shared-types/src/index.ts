@@ -22,6 +22,14 @@ export interface User {
   createdAt: string;
 }
 
+export interface ListUsersResponse {
+  users: User[];
+}
+
+export interface ResetPasswordRequest {
+  newPassword: string;
+}
+
 export type WriteMode = "CREATE_ONLY" | "OVERWRITE" | "UPSERT";
 export type ContentSource = "STATIC" | "TEMPLATE";
 export type BranchStrategy = "DEFAULT" | "NEW_BRANCH";
