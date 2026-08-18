@@ -43,17 +43,23 @@ function runMigrations(db: AppDatabase): void {
     CREATE TABLE IF NOT EXISTS change_sets (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      content_source TEXT NOT NULL,
-      content TEXT NOT NULL,
-      template_vars_schema TEXT,
       branch_strategy TEXT NOT NULL,
       commit_strategy TEXT NOT NULL,
       commit_message TEXT NOT NULL,
       pr_title TEXT,
       pr_body TEXT,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS change_set_files (
+      id TEXT PRIMARY KEY,
+      change_set_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL,
+      file_path TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      content_source TEXT NOT NULL,
+      content TEXT NOT NULL,
+      template_vars_schema TEXT
     );
 
     CREATE TABLE IF NOT EXISTS target_selections (
@@ -81,9 +87,6 @@ function runMigrations(db: AppDatabase): void {
       job_id TEXT NOT NULL,
       repo_full_name TEXT NOT NULL,
       status TEXT NOT NULL,
-      diff_summary TEXT,
-      before_sha TEXT,
-      after_sha TEXT,
       branch_protected INTEGER,
       direct_to_default INTEGER NOT NULL,
       commit_sha TEXT,
@@ -91,13 +94,43 @@ function runMigrations(db: AppDatabase): void {
       error_message TEXT,
       attempt_count INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS repo_run_files (
+      id TEXT PRIMARY KEY,
+      repo_run_id TEXT NOT NULL,
+      change_set_file_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      diff_summary TEXT,
+      before_sha TEXT,
+      after_sha TEXT,
+      error_message TEXT,
+      rendered_content TEXT
+    );
   `);
 
-  const repoRunsColumns = db.prepare(`PRAGMA table_info(repo_runs)`).all() as Array<{
-    name: string;
-  }>;
-  const hasRenderedContent = repoRunsColumns.some((col) => col.name === "rendered_content");
-  if (!hasRenderedContent) {
-    db.exec(`ALTER TABLE repo_runs ADD COLUMN rendered_content TEXT`);
+  // Guarded column drops: change_sets/repo_runs may already exist (from
+  // before this migration) with the old single-file schema. CREATE TABLE
+  // IF NOT EXISTS above is a no-op against an existing table, so the old
+  // columns have to be removed explicitly. Safe on both a fresh DB (the
+  // columns were never created, so these no-op via the guard) and an
+  // existing dev DB (columns actually drop once, then this is a no-op on
+  // every later startup) — same idempotent-guard idiom this file already
+  // used for adding the rendered_content column.
+  dropColumnIfExists(db, "change_sets", "file_path");
+  dropColumnIfExists(db, "change_sets", "mode");
+  dropColumnIfExists(db, "change_sets", "content_source");
+  dropColumnIfExists(db, "change_sets", "content");
+  dropColumnIfExists(db, "change_sets", "template_vars_schema");
+
+  dropColumnIfExists(db, "repo_runs", "diff_summary");
+  dropColumnIfExists(db, "repo_runs", "before_sha");
+  dropColumnIfExists(db, "repo_runs", "after_sha");
+  dropColumnIfExists(db, "repo_runs", "rendered_content");
+}
+
+function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (columns.some((col) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   }
 }

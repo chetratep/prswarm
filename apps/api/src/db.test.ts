@@ -56,3 +56,72 @@ describe("openDatabase transactions", () => {
     expect(row).toBeFalsy();
   });
 });
+
+describe("openDatabase schema", () => {
+  it("creates change_set_files and repo_run_files, and drops the old single-file columns", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    const changeSetColumns = (db.prepare("PRAGMA table_info(change_sets)").all() as Array<{ name: string }>).map(
+      (c) => c.name
+    );
+    expect(changeSetColumns).not.toContain("file_path");
+    expect(changeSetColumns).not.toContain("content");
+    expect(changeSetColumns).not.toContain("mode");
+    expect(changeSetColumns).not.toContain("content_source");
+    expect(changeSetColumns).not.toContain("template_vars_schema");
+    expect(changeSetColumns).toContain("name");
+    expect(changeSetColumns).toContain("branch_strategy");
+
+    const changeSetFileColumns = (
+      db.prepare("PRAGMA table_info(change_set_files)").all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    expect(changeSetFileColumns).toEqual(
+      expect.arrayContaining([
+        "id",
+        "change_set_id",
+        "order_index",
+        "file_path",
+        "mode",
+        "content_source",
+        "content",
+        "template_vars_schema",
+      ])
+    );
+
+    const repoRunColumns = (db.prepare("PRAGMA table_info(repo_runs)").all() as Array<{ name: string }>).map(
+      (c) => c.name
+    );
+    expect(repoRunColumns).not.toContain("diff_summary");
+    expect(repoRunColumns).not.toContain("before_sha");
+    expect(repoRunColumns).not.toContain("after_sha");
+    expect(repoRunColumns).not.toContain("rendered_content");
+    expect(repoRunColumns).toContain("branch_protected");
+
+    const repoRunFileColumns = (
+      db.prepare("PRAGMA table_info(repo_run_files)").all() as Array<{ name: string }>
+    ).map((c) => c.name);
+    expect(repoRunFileColumns).toEqual(
+      expect.arrayContaining([
+        "id",
+        "repo_run_id",
+        "change_set_file_id",
+        "file_path",
+        "diff_summary",
+        "before_sha",
+        "after_sha",
+        "error_message",
+        "rendered_content",
+      ])
+    );
+  });
+
+  it("running migrations twice against the same database file does not throw", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+    db.close();
+    expect(() => {
+      db = openDatabase(dbPath);
+    }).not.toThrow();
+  });
+});
