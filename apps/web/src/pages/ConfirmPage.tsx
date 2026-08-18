@@ -3,7 +3,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { ExecuteJobRequest, JobView } from "@bulk-github-update-tool/shared-types";
 import { apiGet, apiPost } from "../api/client";
-import { deriveDiffStatus, type DiffStatus } from "../lib/repoRunStatus";
+import {
+  deriveDiffStatus,
+  groupRepoRunFilesByRepoRunId,
+  worstDiffStatus,
+  type DiffStatus,
+} from "../lib/repoRunStatus";
 
 const STATUS_LABEL: Record<DiffStatus, string> = {
   error: "Error",
@@ -70,10 +75,15 @@ export function ConfirmPage() {
     );
   }
 
-  const { repoRuns } = jobQuery.data;
+  const { repoRuns, repoRunFiles } = jobQuery.data;
+  const filesByRepoRunId = groupRepoRunFilesByRepoRunId(repoRunFiles);
   const counts: Record<DiffStatus, number> = { error: 0, new: 0, unchanged: 0, modified: 0 };
   repoRuns.forEach((run) => {
-    counts[deriveDiffStatus(run)] += 1;
+    const files = filesByRepoRunId.get(run.id) ?? [];
+    const status = run.errorMessage
+      ? "error"
+      : worstDiffStatus(files.map((f) => deriveDiffStatus(f)));
+    counts[status] += 1;
   });
 
   // Unconditional whenever any row is direct-to-default, regardless of
