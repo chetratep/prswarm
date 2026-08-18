@@ -245,6 +245,11 @@ export async function registerJobsRoutes(app: FastifyInstance, opts: JobsRouteOp
       return reply.code(404).send({ error: "Job not found" });
     }
 
+    const currentUser = resolveCurrentUser(request);
+    if (currentUser.role !== "admin" && job.createdBy !== currentUser.userId) {
+      return reply.code(403).send({ error: "You don't have access to this job" });
+    }
+
     reply.hijack();
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
