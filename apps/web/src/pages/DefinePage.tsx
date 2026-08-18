@@ -1,21 +1,17 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import CodeMirror from "@uiw/react-codemirror";
 import type {
   BranchStrategy,
   CommitStrategy,
   CreateChangeSetRequest,
   CreateChangeSetResponse,
   CreateJobRequest,
-  FetchContentRequest,
-  FetchContentResponse,
   JobView,
-  WriteMode,
 } from "@bulk-github-update-tool/shared-types";
 import { extractTemplateVariables } from "@bulk-github-update-tool/shared-types";
 import { apiPost } from "../api/client";
-import { languageExtensionsForPath } from "../lib/contentLanguage";
+import { FileEntryEditor, type FileEntryValue } from "../components/FileEntryEditor";
 import { useSelection } from "../state/SelectionContext";
 
 // The three real "how it lands" choices, collapsed onto one control rather
@@ -34,32 +30,26 @@ const LANDING_STRATEGIES: Record<
   PR: { commitStrategy: "PULL_REQUEST", branchStrategy: "NEW_BRANCH" },
 };
 
+function emptyFile(): FileEntryValue {
+  return { filePath: "", mode: "UPSERT", content: "" };
+}
+
 export function DefinePage() {
   const navigate = useNavigate();
   const { selectedRepos } = useSelection();
 
   const [name, setName] = useState("");
-  const [filePath, setFilePath] = useState("");
-  const [mode, setMode] = useState<WriteMode>("UPSERT");
-  const [content, setContent] = useState("");
+  const [files, setFiles] = useState<FileEntryValue[]>([emptyFile()]);
   const [commitMessage, setCommitMessage] = useState("");
   // Deliberately no default — direct-commit and PR are equal first-class
   // choices per CLAUDE.md, so this must never be pre-selected.
   const [landing, setLanding] = useState<Landing | null>(null);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
-  // Memoized so CodeMirror's `extensions` prop keeps a stable identity across
-  // re-renders that don't change the file extension — without this, every
-  // keystroke (which re-renders DefinePage) would hand CodeMirror a brand new
-  // array, forcing it to tear down and reconfigure its EditorState each time.
-  const contentExtensions = useMemo(() => languageExtensionsForPath(filePath), [filePath]);
-  // Per-repo values for {{variable}} placeholders found in `content`, keyed
-  // by repoFullName then variable name. Only rendered/relevant once
-  // extractTemplateVariables(content) finds something — a changeset with no
-  // placeholders never touches this. Recomputed from `content` on every
-  // render (cheap regex scan) rather than memoized, so the grid always
-  // matches exactly what's currently typed.
+  // Per-repo values for {{variable}} placeholders found across every
+  // file's content, keyed by repoFullName then variable name. Recomputed
+  // from `files` on every render (cheap regex scan) rather than memoized,
+  // so the grid always matches exactly what's currently typed.
   const [templateValues, setTemplateValues] = useState<Record<string, Record<string, string>>>({});
 
   function setTemplateValue(repoFullName: string, varName: string, value: string) {
@@ -69,15 +59,34 @@ export function DefinePage() {
     }));
   }
 
-  const fetchContentMutation = useMutation({
-    mutationFn: () =>
-      apiPost<FetchContentResponse>("/api/fetch-content", { url: sourceUrl } satisfies FetchContentRequest),
-    onSuccess: (res) => setContent(res.content),
-  });
+  function updateFile(index: number, value: FileEntryValue) {
+    setFiles((prev) => prev.map((f, i) => (i === index ? value : f)));
+  }
 
-  function handleFetchContent() {
-    if (sourceUrl.trim() === "" || fetchContentMutation.isPending) return;
-    fetchContentMutation.mutate();
+  function addFile() {
+    setFiles((prev) => [...prev, emptyFile()]);
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function moveFileUp(index: number) {
+    if (index === 0) return;
+    setFiles((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }
+
+  function moveFileDown(index: number) {
+    setFiles((prev) => {
+      if (index === prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
   }
 
   const createMutation = useMutation({
@@ -88,9 +97,7 @@ export function DefinePage() {
       const strategies = LANDING_STRATEGIES[landing];
       const changeSetPayload: CreateChangeSetRequest = {
         name,
-        filePath,
-        mode,
-        content,
+        files: files.map((f) => ({ filePath: f.filePath, mode: f.mode, content: f.content })),
         branchStrategy: strategies.branchStrategy,
         commitStrategy: strategies.commitStrategy,
         commitMessage,
@@ -102,9 +109,10 @@ export function DefinePage() {
         changeSetPayload,
       );
 
+      const anyTemplateVariables = files.some((f) => extractTemplateVariables(f.content).length > 0);
       const jobPayload: CreateJobRequest = {
         targetRepos: Array.from(selectedRepos),
-        ...(extractTemplateVariables(content).length > 0 ? { templateValues } : {}),
+        ...(anyTemplateVariables ? { templateValues } : {}),
       };
       const jobRes = await apiPost<JobView>(
         `/api/changesets/${changeSetRes.changeSet.id}/jobs`,
@@ -123,10 +131,11 @@ export function DefinePage() {
     return <Navigate to="/select" replace />;
   }
 
-  // Whether the content has any {{variable}} placeholders — derived fresh
-  // from `content` on every render (same regex the backend uses to decide
-  // STATIC vs TEMPLATE), never a separate mode toggle.
-  const templateVariables = extractTemplateVariables(content);
+  // Union of every file's {{variable}} placeholders, deduped — a variable
+  // used in two files is one variable with one value per repo, not two.
+  const templateVariables = Array.from(
+    new Set(files.flatMap((f) => extractTemplateVariables(f.content))),
+  );
   const targetRepoList = Array.from(selectedRepos);
   const hasMissingTemplateValue =
     templateVariables.length > 0 &&
@@ -134,19 +143,14 @@ export function DefinePage() {
       templateVariables.some((varName) => (templateValues[repo]?.[varName] ?? "").trim() === ""),
     );
 
-  // Listed in form order so the hint below the submit button reads as a
-  // checklist, not a jumble — and so canSubmit and the hint can never
-  // silently disagree with each other (canSubmit is just "no items").
   const missingFields: string[] = [];
   if (name.trim() === "") missingFields.push("Name");
-  if (filePath.trim() === "") missingFields.push("File path");
-  if (content === "") missingFields.push("Content");
+  if (files.length === 0) missingFields.push("At least one file");
+  if (files.some((f) => f.filePath.trim() === "")) missingFields.push("File path");
+  if (files.some((f) => f.content === "")) missingFields.push("Content");
   if (commitMessage.trim() === "") missingFields.push("Commit message");
   if (landing === null) missingFields.push("How it lands");
   if (landing === "PR" && prTitle.trim() === "") missingFields.push("PR title");
-  // One summarizing entry rather than one per (repo, variable) cell — could
-  // get long with many repos x variables. Purely a display simplification:
-  // canSubmit still requires every cell filled via hasMissingTemplateValue.
   if (hasMissingTemplateValue) missingFields.push("Template variable values");
 
   const canSubmit = missingFields.length === 0 && !createMutation.isPending;
@@ -162,7 +166,8 @@ export function DefinePage() {
       <h2>Define change</h2>
       <p className="page__intro">
         {selectedRepos.size} repo{selectedRepos.size === 1 ? "" : "s"} targeted. This defines the
-        single file change that will be applied to each of them.
+        file change{files.length === 1 ? "" : "s"} that will be applied to each of them, all in one
+        commit.
       </p>
 
       <form className="form form--wide" onSubmit={handleSubmit}>
@@ -183,69 +188,26 @@ export function DefinePage() {
           />
         </label>
 
-        <label className="form__field">
-          <span>
-            File path <span className="required-mark" aria-hidden="true">*</span>
-          </span>
-          <input
-            type="text"
-            value={filePath}
-            onChange={(event) => setFilePath(event.target.value)}
-            placeholder=".github/workflows/pr-review.yml"
-            required
-          />
-        </label>
-
-        <label className="form__field">
-          <span>
-            Mode <span className="optional-mark">(optional — defaults to Upsert)</span>
-          </span>
-          <select value={mode} onChange={(event) => setMode(event.target.value as WriteMode)}>
-            <option value="CREATE_ONLY">Create only</option>
-            <option value="OVERWRITE">Overwrite</option>
-            <option value="UPSERT">Upsert</option>
-          </select>
-        </label>
-
-        <div className="form__field">
-          <span>
-            Content <span className="required-mark" aria-hidden="true">*</span>
-          </span>
-
-          <div className="content-fetch-row">
-            <input
-              type="url"
-              value={sourceUrl}
-              onChange={(event) => setSourceUrl(event.target.value)}
-              placeholder="Or paste a raw file URL to fetch it — e.g. a GitHub raw link"
-              className="content-fetch-row__input"
+        <div className="file-entry-list">
+          {files.map((file, index) => (
+            <FileEntryEditor
+              key={index}
+              index={index}
+              value={file}
+              canRemove={files.length > 1}
+              canMoveUp={index > 0}
+              canMoveDown={index < files.length - 1}
+              onChange={updateFile}
+              onRemove={removeFile}
+              onMoveUp={moveFileUp}
+              onMoveDown={moveFileDown}
             />
-            <button
-              type="button"
-              className="button button--secondary"
-              onClick={handleFetchContent}
-              disabled={sourceUrl.trim() === "" || fetchContentMutation.isPending}
-            >
-              {fetchContentMutation.isPending ? "Fetching…" : "Fetch"}
-            </button>
-          </div>
-          {fetchContentMutation.isError && (
-            <p className="form__error" role="alert">
-              {fetchContentMutation.error instanceof Error
-                ? fetchContentMutation.error.message
-                : "Failed to fetch that URL."}
-            </p>
-          )}
-
-          <CodeMirror
-            value={content}
-            onChange={(value) => setContent(value)}
-            extensions={contentExtensions}
-            height="360px"
-            placeholder={"name: PR review\non:\n  pull_request:\n    types: [opened, synchronize]\n"}
-            className="content-editor"
-          />
+          ))}
         </div>
+
+        <button type="button" className="button button--secondary" onClick={addFile}>
+          + Add another file
+        </button>
 
         {templateVariables.length > 0 && (
           <div className="template-vars-section">
@@ -253,7 +215,7 @@ export function DefinePage() {
               Template variables <span className="required-mark" aria-hidden="true">*</span>
             </h3>
             <p className="template-vars-section__hint">
-              This content has {templateVariables.length} placeholder
+              These files have {templateVariables.length} placeholder
               {templateVariables.length === 1 ? "" : "s"} — provide a value for each in every
               targeted repo before this can be previewed.
             </p>
