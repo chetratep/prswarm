@@ -130,11 +130,21 @@ export function deleteCurrentConnection(db: AppDatabase, userId: string): void {
   db.prepare("DELETE FROM connections WHERE user_id = ?").run(userId);
 }
 
-/** One-time backfill: a connection row from before per-user connections
- * existed has user_id NULL. Assigns any such rows to the bootstrap admin.
- * Idempotent — nothing left to update once it's run once. Called from
- * auth/bootstrap.ts, not automatically from db.ts's migrations (which
- * don't know which user should own pre-migration rows). */
+/** One-time backfill: a connection row with no real owner yet — either
+ * user_id IS NULL (a genuinely pre-migration row; db.ts's own migration
+ * already backfills these to 'local' unconditionally on every boot, so in
+ * practice this arm rarely fires here, but it's kept as a defensive
+ * belt-and-braces match) or user_id = 'local' (the sentinel used for every
+ * request whenever AUTH_ENABLED is off — a connection created in that mode
+ * and never previously reassigned). Both cases get assigned to the
+ * bootstrap admin here, mirroring reassignLegacyJobs's 'local' handling in
+ * jobsRepository.ts, so turning auth ON after using the app in single-user
+ * mode doesn't leave the existing connection orphaned either. Idempotent —
+ * nothing left to update once it's run once. Called from auth/bootstrap.ts,
+ * not automatically from db.ts's migrations (which don't know which user
+ * should own pre-migration rows). */
 export function reassignOrphanedConnections(db: AppDatabase, adminUserId: string): void {
-  db.prepare("UPDATE connections SET user_id = ? WHERE user_id IS NULL").run(adminUserId);
+  db.prepare("UPDATE connections SET user_id = ? WHERE user_id IS NULL OR user_id = 'local'").run(
+    adminUserId
+  );
 }

@@ -124,4 +124,31 @@ describe("openDatabase schema", () => {
       db = openDatabase(dbPath);
     }).not.toThrow();
   });
+
+  it("backfills connections.user_id IS NULL to the 'local' sentinel unconditionally, regardless of AUTH_ENABLED", () => {
+    // Simulates a pre-migration connection row (user_id was never set) that
+    // predates the multi-user access-control work. Without this backfill
+    // running unconditionally at migration time (not just inside
+    // bootstrapAuth, which no-ops whenever AUTH_ENABLED is off — the
+    // documented default), this row would be permanently invisible to
+    // getCurrentConnectionRow(db, 'local'), the sentinel userId used for
+    // every request in that mode.
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('legacy-1', NULL, 'PAT', 'legacy-login', NULL, NULL, NULL, 'enc', '2020-01-01T00:00:00.000Z')`
+    ).run();
+    db.close();
+
+    // Reopening runs runMigrations() again — this is where the backfill
+    // must fire, since the row already existed with user_id NULL before
+    // this second open.
+    db = openDatabase(dbPath);
+
+    const row = db.prepare("SELECT user_id FROM connections WHERE id = 'legacy-1'").get() as {
+      user_id: string | null;
+    };
+    expect(row.user_id).toBe("local");
+  });
 });

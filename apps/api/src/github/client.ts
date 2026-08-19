@@ -7,13 +7,16 @@
 // needs decrypted before use."
 //
 // `connection.host` — when set, points every request at a GitHub
-// Enterprise Server instance instead of github.com, via Octokit's baseUrl
-// option (expected format: "https://<ghe-hostname>/api/v3"). When null,
-// baseUrl is omitted entirely so Octokit falls back to its own
-// github.com default — no special-casing needed.
+// Enterprise Server instance instead of github.com. The stored form is
+// always a bare hostname (e.g. "ghe.example.com" — see host.ts for why and
+// where that's normalized); `buildGheBaseUrl` derives Octokit's `baseUrl`
+// option ("https://<ghe-hostname>/api/v3") from it here. When null, baseUrl
+// is omitted entirely so Octokit falls back to its own github.com default —
+// no special-casing needed.
 import { Octokit } from "@octokit/rest";
 import type { Connection } from "@bulk-github-update-tool/shared-types";
 import { getInstallationOctokit } from "./appAuth.js";
+import { buildGheBaseUrl } from "./host.js";
 
 export async function buildOctokitForConnection(
   connection: Connection,
@@ -21,7 +24,7 @@ export async function buildOctokitForConnection(
 ): Promise<Octokit> {
   switch (connection.type) {
     case "PAT":
-      return new Octokit({ auth: decryptedToken, baseUrl: connection.host || undefined });
+      return new Octokit({ auth: decryptedToken, baseUrl: buildGheBaseUrl(connection.host) });
     case "GITHUB_APP":
       return getInstallationOctokit(
         connection.appId!,

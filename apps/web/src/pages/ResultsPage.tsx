@@ -45,7 +45,14 @@ export function ResultsPage() {
     queryKey: ["connection", "current"],
     queryFn: () => apiGetOrNull<Connection>("/api/connections/current"),
   });
-  const githubHost = (connectionQuery.data?.host || "github.com").replace(/\/api\/v3\/?$/, "");
+  // connection.host is normalized server-side (routes/connections.ts) to a
+  // bare hostname now, so this is primarily direct use — the strip is kept
+  // only as a defensive fallback for any pre-normalization data still
+  // sitting in an existing DB.
+  const githubHost = (connectionQuery.data?.host || "github.com")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/api\/v3\/?$/, "")
+    .replace(/\/$/, "");
 
   const retryMutation = useMutation({
     mutationFn: () => {

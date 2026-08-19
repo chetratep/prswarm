@@ -21,6 +21,7 @@ import { encrypt } from "../crypto.js";
 import type { AppDatabase } from "../db.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";
 import { listAppInstallations } from "../github/appAuth.js";
+import { buildGheBaseUrl, normalizeGheHost } from "../github/host.js";
 import {
   deleteCurrentConnection,
   getCurrentConnection,
@@ -64,7 +65,15 @@ export async function registerConnectionsRoutes(
     const { token, host } = parsed.data;
     const currentUser = resolveCurrentUser(request);
 
-    const octokit = new Octokit({ auth: token, baseUrl: host || undefined });
+    // Whatever form the user typed (bare host, "https://host/api/v3",
+    // "host/api/v3", ...), normalize once here — this is the single write
+    // boundary for connection.host (see host.ts). Verification below uses
+    // the same normalized value (buildGheBaseUrl re-derives the full
+    // Octokit baseUrl from it), so what gets verified and what gets stored
+    // are guaranteed to agree.
+    const normalizedHost = normalizeGheHost(host);
+
+    const octokit = new Octokit({ auth: token, baseUrl: buildGheBaseUrl(normalizedHost) });
 
     let login: string;
     try {
@@ -81,7 +90,7 @@ export async function registerConnectionsRoutes(
     const encryptedToken = encrypt(token);
     const connection = replaceWithPatConnection(db, currentUser.userId, {
       login,
-      host: host ?? null,
+      host: normalizedHost,
       encryptedToken,
     });
 
@@ -97,10 +106,11 @@ export async function registerConnectionsRoutes(
         return reply.code(400).send({ error: "appId and privateKeyPem are required" });
       }
       const { appId, privateKeyPem, host } = parsed.data;
+      const normalizedHost = normalizeGheHost(host);
 
       let installations;
       try {
-        installations = await listAppInstallations(appId, privateKeyPem, host);
+        installations = await listAppInstallations(appId, privateKeyPem, normalizedHost);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         return reply.code(400).send({
@@ -120,10 +130,11 @@ export async function registerConnectionsRoutes(
     }
     const { appId, privateKeyPem, installationId, host } = parsed.data;
     const currentUser = resolveCurrentUser(request);
+    const normalizedHost = normalizeGheHost(host);
 
     let installations;
     try {
-      installations = await listAppInstallations(appId, privateKeyPem, host);
+      installations = await listAppInstallations(appId, privateKeyPem, normalizedHost);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return reply.code(400).send({
@@ -144,7 +155,7 @@ export async function registerConnectionsRoutes(
     const encryptedPrivateKeyPem = encrypt(privateKeyPem);
     const connection = replaceWithGithubAppConnection(db, currentUser.userId, {
       login: match.accountLogin,
-      host: host ?? null,
+      host: normalizedHost,
       appId,
       installationId,
       encryptedPrivateKeyPem,

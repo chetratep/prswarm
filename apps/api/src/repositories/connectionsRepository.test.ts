@@ -76,6 +76,10 @@ describe("connectionsRepository", () => {
     const database = freshDb();
     // Simulate a pre-migration row directly — replaceWithPatConnection
     // always sets user_id now, so this bypasses it to model legacy data.
+    // (In practice db.ts's own migration already backfills NULL -> 'local'
+    // unconditionally on every boot, so a real NULL row rarely reaches this
+    // function — but it's still exercised here as a defensive belt-and-
+    // braces case.)
     database
       .prepare(
         `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
@@ -86,5 +90,24 @@ describe("connectionsRepository", () => {
     reassignOrphanedConnections(database, "admin-1");
 
     expect(getCurrentConnection(database, "admin-1")?.login).toBe("legacy-login");
+  });
+
+  it("reassignOrphanedConnections also assigns 'local'-owned rows to the given admin (auth turned on after single-user use)", () => {
+    const database = freshDb();
+    // A connection created while AUTH_ENABLED was off is owned by the
+    // 'local' sentinel (see auth/currentUser.ts). Turning auth on
+    // afterward must not orphan it — reassignOrphanedConnections has to
+    // catch this case too, not just user_id IS NULL, mirroring how
+    // reassignLegacyJobs treats created_by = 'local' in jobsRepository.ts.
+    replaceWithPatConnection(database, "local", {
+      login: "local-user-login",
+      host: null,
+      encryptedToken: "enc",
+    });
+
+    reassignOrphanedConnections(database, "admin-1");
+
+    expect(getCurrentConnection(database, "admin-1")?.login).toBe("local-user-login");
+    expect(getCurrentConnection(database, "local")).toBeNull();
   });
 });

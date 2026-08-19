@@ -2,13 +2,17 @@
 // private key, and building an Octokit authenticated as one specific
 // installation. Uses @octokit/auth-app for JWT signing (App-level auth) and
 // installation-token exchange rather than hand-rolling either. Both
-// functions accept an optional `host` for GitHub Enterprise Server — passed
-// straight through to Octokit's own `baseUrl` option (the outer Octokit
+// functions accept an optional `host` for GitHub Enterprise Server — it may
+// be a bare hostname (the canonical stored form, see host.ts) or the raw
+// form a caller typed before normalization (e.g. during the
+// verify-before-store step in routes/connections.ts); `buildGheBaseUrl`
+// derives Octokit's `baseUrl` option from it either way (the outer Octokit
 // constructor forwards it to createAppAuth's requests automatically, no
 // separate wiring needed — confirmed against @octokit/auth-app's own docs).
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { GithubAppInstallationSummary } from "@bulk-github-update-tool/shared-types";
+import { buildGheBaseUrl } from "./host.js";
 
 /** Lists every installation the given App ID + private key can see. Lets
  * GitHub's own errors (bad App ID, malformed PEM, nonexistent App) propagate
@@ -21,7 +25,7 @@ export async function listAppInstallations(
   const octokit = new Octokit({
     authStrategy: createAppAuth,
     auth: { appId, privateKey: privateKeyPem },
-    baseUrl: host || undefined,
+    baseUrl: buildGheBaseUrl(host),
   });
 
   const { data } = await octokit.rest.apps.listInstallations();
@@ -59,6 +63,6 @@ export async function getInstallationOctokit(
   return new Octokit({
     authStrategy: createAppAuth,
     auth: { appId, privateKey: privateKeyPem, installationId },
-    baseUrl: host || undefined,
+    baseUrl: buildGheBaseUrl(host),
   });
 }

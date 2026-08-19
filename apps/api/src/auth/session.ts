@@ -1,11 +1,25 @@
 // Registers @fastify/secure-session and the global auth gate hook.
 //
 // AUTH_ENABLED=true + no SESSION_SECRET => throw at startup (fail fast,
-// never boot half-configured). AUTH_ENABLED=false => the onRequest hook is a
-// no-op; no auth code path runs at all, per the "off means off" stance.
+// never boot half-configured). AUTH_ENABLED=false => no session data is
+// ever trusted or required — every /api request resolves to the fixed
+// `local` sentinel, per the "off means off" stance.
+//
+// This hook is also the sole place responsible for resolving *who* is
+// making the request (auth/currentUser.ts's resolveCurrentUser just reads
+// what's decorated here) — it's the only place that actually knows
+// AUTH_ENABLED, so it's the only place allowed to decide whether the
+// sentinel applies. See the final whole-branch review's I3 finding: the
+// old design let currentUser.ts infer "auth is off" from "the session is
+// empty", which could resolve an incomplete session (userId set, role
+// missing) to full admin. Now: authEnabled=false always sentinel;
+// authEnabled=true requires BOTH userId AND role to be present in the
+// session, or the request is rejected (401) — never falls through to the
+// sentinel.
 import crypto from "node:crypto";
 import secureSession from "@fastify/secure-session";
 import type { FastifyInstance } from "fastify";
+import { LOCAL_SENTINEL_USER, type SessionUser } from "./currentUser.js";
 
 export interface SessionOptions {
   authEnabled: boolean;
@@ -42,9 +56,9 @@ export async function registerSession(app: FastifyInstance, opts: SessionOptions
     },
   });
 
-  app.addHook("onRequest", async (request, reply) => {
-    if (!authEnabled) return;
+  app.decorateRequest("currentUser", undefined);
 
+  app.addHook("onRequest", async (request, reply) => {
     // Matched by raw pathname rather than Fastify's route-introspection APIs
     // (which have shifted across major versions) so this stays correct
     // regardless of exactly how routes are registered under the /api prefix.
@@ -55,8 +69,18 @@ export async function registerSession(app: FastifyInstance, opts: SessionOptions
     // They have to load *before* the client can even show a login form, so
     // blocking them here would make the app un-loadable rather than
     // login-gated. The data those assets can reach is still fully protected —
-    // every /api/* call the SPA makes goes through this same hook.
+    // every /api/* call the SPA makes goes through this same hook. No route
+    // handler here ever calls resolveCurrentUser, so no decoration needed.
     if (!pathname.startsWith("/api/")) return;
+
+    if (!authEnabled) {
+      // Auth is genuinely off — this IS the documented single-user mode,
+      // not a fallback for an incomplete session. Every /api request
+      // resolves to the same fixed sentinel; no session data is read or
+      // required at all.
+      request.currentUser = LOCAL_SENTINEL_USER;
+      return;
+    }
 
     // GET /api/session must stay public even though it reports auth state:
     // it's how the frontend discovers "you need to log in" in the first
@@ -71,8 +95,14 @@ export async function registerSession(app: FastifyInstance, opts: SessionOptions
 
     if (isPublicRoute) return;
 
-    if (!request.session.get("userId")) {
+    const userId = request.session.get("userId") as string | undefined;
+    const role = request.session.get("role") as SessionUser["role"] | undefined;
+    if (!userId || !role) {
+      // Auth is on, and the session is missing either key — reject
+      // outright. Never fall through to the sentinel: that would grant
+      // full admin to a malformed/incomplete session (see I3).
       return reply.code(401).send({ error: "Unauthorized" });
     }
+    request.currentUser = { userId, role };
   });
 }

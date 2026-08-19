@@ -289,7 +289,7 @@ export function ConnectPage() {
                 autoComplete="off"
                 value={host}
                 onChange={(event) => setHost(event.target.value)}
-                placeholder="github.example.com/api/v3 — leave blank for github.com"
+                placeholder="github.example.com — leave blank for github.com"
               />
             </label>
             {connectPatMutation.isError && (
@@ -358,7 +358,7 @@ export function ConnectPage() {
                 autoComplete="off"
                 value={host}
                 onChange={(event) => setHost(event.target.value)}
-                placeholder="github.example.com/api/v3 — leave blank for github.com"
+                placeholder="github.example.com — leave blank for github.com"
               />
             </label>
             {listInstallationsMutation.isError && (

@@ -155,6 +155,17 @@ function runMigrations(db: AppDatabase): void {
   // rows — not backfilled here, since db.ts has no concept of "the admin".
   addColumnIfNotExists(db, "connections", "user_id", "TEXT");
   addColumnIfNotExists(db, "connections", "host", "TEXT");
+
+  // Backfill user_id IS NULL rows to the 'local' sentinel unconditionally,
+  // regardless of AUTH_ENABLED. This has to run here (not only inside
+  // bootstrapAuth) because bootstrapAuth returns early whenever auth is
+  // off — which is the documented default — so a pre-migration connection
+  // row would otherwise never be picked up by getCurrentConnectionRow(db,
+  // 'local') (the sentinel userId used for every request when auth is
+  // off) and would sit in the table forever, invisible and undeletable
+  // through the app. Idempotent: a second run finds nothing left with
+  // user_id IS NULL.
+  db.exec("UPDATE connections SET user_id = 'local' WHERE user_id IS NULL");
 }
 
 function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {

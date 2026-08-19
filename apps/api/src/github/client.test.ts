@@ -21,7 +21,18 @@ describe("buildOctokitForConnection", () => {
     expect(octokit.request.endpoint.DEFAULTS.baseUrl).toBe("https://api.github.com");
   });
 
-  it("uses the connection's host as the GHE Server API base when set", async () => {
+  it("derives the GHE Server API base from a stored bare hostname", async () => {
+    const octokit = await buildOctokitForConnection(
+      baseConnection({ host: "ghe.example.com" }),
+      "token"
+    );
+    expect(octokit.request.endpoint.DEFAULTS.baseUrl).toBe("https://ghe.example.com/api/v3");
+  });
+
+  it("still derives the correct base when given a legacy (pre-normalization) host value", async () => {
+    // connection.host is normalized to a bare hostname at write time now
+    // (routes/connections.ts), but this function must stay correct for any
+    // rows written before that normalization existed.
     const octokit = await buildOctokitForConnection(
       baseConnection({ host: "https://ghe.example.com/api/v3" }),
       "token"
