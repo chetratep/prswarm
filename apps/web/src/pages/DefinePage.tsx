@@ -15,6 +15,19 @@ import { FileEntryEditor, type FileEntryValue } from "../components/FileEntryEdi
 import { useSelection } from "../state/SelectionContext";
 import { IconAlertTriangle, IconPlusCircle } from "../components/icons";
 import { EmptyState } from "../components/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 
 // The three real "how it lands" choices, collapsed onto one control rather
 // than two independent commitStrategy/branchStrategy dropdowns (see the v2
@@ -148,9 +161,9 @@ export function DefinePage() {
         <EmptyState
           message="No repos selected for this session yet."
           action={
-            <Link to="/select" className="button button--primary">
-              Go to Select
-            </Link>
+            <Button asChild>
+              <Link to="/select">Go to Select</Link>
+            </Button>
           }
         />
       </div>
@@ -205,7 +218,7 @@ export function DefinePage() {
           <span>
             Name <span className="required-mark" aria-hidden="true">*</span>
           </span>
-          <input
+          <Input
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -231,10 +244,10 @@ export function DefinePage() {
           ))}
         </div>
 
-        <button type="button" className="button button--secondary" onClick={addFile}>
+        <Button type="button" variant="outline" onClick={addFile}>
           <IconPlusCircle size={15} />
           Add another file
-        </button>
+        </Button>
 
         {templateVariables.length > 0 && (
           <div className="template-vars-section">
@@ -246,37 +259,35 @@ export function DefinePage() {
               {templateVariables.length === 1 ? "" : "s"} — provide a value for each in every
               targeted repo before this can be previewed.
             </p>
-            <div className="template-vars-table-wrap">
-              <table className="template-vars-table">
-                <thead>
-                  <tr>
-                    <th>Repo</th>
-                    {templateVariables.map((varName) => (
-                      <th key={varName}>
-                        <code>{`{{${varName}}}`}</code>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {targetRepoList.map((repo) => (
-                    <tr key={repo}>
-                      <td className="template-vars-table__repo">{repo}</td>
-                      {templateVariables.map((varName) => (
-                        <td key={varName}>
-                          <input
-                            type="text"
-                            value={templateValues[repo]?.[varName] ?? ""}
-                            onChange={(event) => setTemplateValue(repo, varName, event.target.value)}
-                            required
-                          />
-                        </td>
-                      ))}
-                    </tr>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Repo</TableHead>
+                  {templateVariables.map((varName) => (
+                    <TableHead key={varName}>
+                      <code>{`{{${varName}}}`}</code>
+                    </TableHead>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {targetRepoList.map((repo) => (
+                  <TableRow key={repo}>
+                    <TableCell className="template-vars-table__repo">{repo}</TableCell>
+                    {templateVariables.map((varName) => (
+                      <TableCell key={varName}>
+                        <Input
+                          type="text"
+                          value={templateValues[repo]?.[varName] ?? ""}
+                          onChange={(event) => setTemplateValue(repo, varName, event.target.value)}
+                          required
+                        />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
 
@@ -284,7 +295,7 @@ export function DefinePage() {
           <span>
             Commit message <span className="required-mark" aria-hidden="true">*</span>
           </span>
-          <input
+          <Input
             type="text"
             value={commitMessage}
             onChange={(event) => setCommitMessage(event.target.value)}
@@ -293,46 +304,39 @@ export function DefinePage() {
           />
         </label>
 
-        <fieldset className="radio-group">
-          <legend>
+        <fieldset>
+          <legend className="text-sm font-medium mb-2">
             How it lands <span className="required-mark" aria-hidden="true">*</span>
           </legend>
 
-          <label className="radio-option">
-            <input
-              type="radio"
-              name="landing"
-              checked={landing === "DIRECT_DEFAULT"}
-              onChange={() => setLanding("DIRECT_DEFAULT")}
-            />
-            <span>Push directly to the default branch — no PR, no review</span>
-          </label>
-          {landing === "DIRECT_DEFAULT" && (
-            <p className="radio-option__warning">
-              <IconAlertTriangle size={14} /> No review step. Every push here needs typed
-              confirmation before it runs, regardless of how many repos are targeted.
-            </p>
-          )}
+          <RadioGroup value={landing ?? undefined} onValueChange={(v) => setLanding(v as Landing)}>
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="DIRECT_DEFAULT" id="landing-direct" className="mt-0.5" />
+              <Label htmlFor="landing-direct" className="font-normal cursor-pointer">
+                Push directly to the default branch — no PR, no review
+              </Label>
+            </div>
+            {landing === "DIRECT_DEFAULT" && (
+              <p className="radio-option__warning">
+                <IconAlertTriangle size={14} /> No review step. Every push here needs typed
+                confirmation before it runs, regardless of how many repos are targeted.
+              </p>
+            )}
 
-          <label className="radio-option">
-            <input
-              type="radio"
-              name="landing"
-              checked={landing === "NEW_BRANCH"}
-              onChange={() => setLanding("NEW_BRANCH")}
-            />
-            <span>Push to a new branch (no PR)</span>
-          </label>
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="NEW_BRANCH" id="landing-new-branch" className="mt-0.5" />
+              <Label htmlFor="landing-new-branch" className="font-normal cursor-pointer">
+                Push to a new branch (no PR)
+              </Label>
+            </div>
 
-          <label className="radio-option">
-            <input
-              type="radio"
-              name="landing"
-              checked={landing === "PR"}
-              onChange={() => setLanding("PR")}
-            />
-            <span>Open a pull request</span>
-          </label>
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="PR" id="landing-pr" className="mt-0.5" />
+              <Label htmlFor="landing-pr" className="font-normal cursor-pointer">
+                Open a pull request
+              </Label>
+            </div>
+          </RadioGroup>
         </fieldset>
 
         {landing === "PR" && (
@@ -341,7 +345,7 @@ export function DefinePage() {
               <span>
                 PR title <span className="required-mark" aria-hidden="true">*</span>
               </span>
-              <input
+              <Input
                 type="text"
                 value={prTitle}
                 onChange={(event) => setPrTitle(event.target.value)}
@@ -352,7 +356,7 @@ export function DefinePage() {
               <span>
                 PR body <span className="optional-mark">(optional)</span>
               </span>
-              <textarea
+              <Textarea
                 className="form__textarea"
                 value={prBody}
                 onChange={(event) => setPrBody(event.target.value)}
@@ -370,9 +374,9 @@ export function DefinePage() {
           </p>
         )}
 
-        <button type="submit" className="button button--primary" disabled={!canSubmit}>
+        <Button type="submit" disabled={!canSubmit}>
           {createMutation.isPending ? "Creating…" : "Create and preview"}
-        </button>
+        </Button>
         {!canSubmit && !createMutation.isPending && missingFields.length > 0 && (
           <p className="form__hint">Complete these to continue: {missingFields.join(", ")}</p>
         )}

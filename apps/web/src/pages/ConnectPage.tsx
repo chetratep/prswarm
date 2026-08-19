@@ -9,6 +9,11 @@ import type {
 } from "@bulk-github-update-tool/shared-types";
 import { apiDelete, apiGetOrNull, apiPost } from "../api/client";
 import { IconCheckCircle, IconKey, IconPlug, IconTrash } from "../components/icons";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CONNECTION_QUERY_KEY = ["connection", "current"] as const;
 
@@ -160,24 +165,25 @@ export function ConnectPage() {
             Connection ID: <code>{connection.id}</code>
           </p>
           <div className="connected-card__actions">
-            <Link to="/select" className="button button--primary">
-              Continue to select repos
-            </Link>
-            <button
+            <Button asChild>
+              <Link to="/select">Continue to select repos</Link>
+            </Button>
+            <Button
               type="button"
-              className="button button--secondary"
+              variant="outline"
               onClick={() => setShowReconnectForm(true)}
             >
               Use different credentials
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="button-link button-link--danger"
+              variant="link"
+              className="text-destructive h-auto p-0"
               onClick={() => setShowDisconnectConfirm(true)}
             >
               <IconTrash size={14} />
               Disconnect
-            </button>
+            </Button>
           </div>
 
           {showDisconnectConfirm && (
@@ -194,21 +200,22 @@ export function ConnectPage() {
                 </p>
               )}
               <div className="disconnect-confirm__actions">
-                <button
+                <Button
                   type="button"
-                  className="button button--danger"
+                  variant="destructive"
                   disabled={disconnectMutation.isPending}
                   onClick={() => disconnectMutation.mutate()}
                 >
                   {disconnectMutation.isPending ? "Disconnecting…" : "Yes, disconnect"}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className="button-link"
+                  variant="link"
+                  className="text-link h-auto p-0"
                   onClick={() => setShowDisconnectConfirm(false)}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -227,38 +234,29 @@ export function ConnectPage() {
       {connection && (
         <p className="page__intro">
           Currently connected as <strong>{connection.login ?? "(no login)"}</strong>.{" "}
-          <button
+          <Button
             type="button"
-            className="button-link"
+            variant="link"
+            className="text-link h-auto p-0"
             onClick={() => setShowReconnectForm(false)}
           >
             Cancel and keep this connection
-          </button>
+          </Button>
         </p>
       )}
 
-      <div className="method-tabs" role="tablist" aria-label="Connection method">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={method === "PAT"}
-          className={"method-tab" + (method === "PAT" ? " method-tab--active" : "")}
-          onClick={() => handleMethodChange("PAT")}
-        >
-          <IconKey size={15} />
-          Personal access token
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={method === "GITHUB_APP"}
-          className={"method-tab" + (method === "GITHUB_APP" ? " method-tab--active" : "")}
-          onClick={() => handleMethodChange("GITHUB_APP")}
-        >
-          <IconPlug size={15} />
-          GitHub App
-        </button>
-      </div>
+      <Tabs value={method} onValueChange={(v) => handleMethodChange(v as ConnectMethod)}>
+        <TabsList variant="line">
+          <TabsTrigger value="PAT">
+            <IconKey size={15} />
+            Personal access token
+          </TabsTrigger>
+          <TabsTrigger value="GITHUB_APP">
+            <IconPlug size={15} />
+            GitHub App
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {method === "PAT" && (
         <>
@@ -269,8 +267,7 @@ export function ConnectPage() {
           <form className="form" onSubmit={handlePatSubmit}>
             <label className="form__field">
               <span>Personal access token</span>
-              <input
-                type="password"
+              <PasswordInput
                 name="token"
                 autoComplete="off"
                 value={token}
@@ -283,7 +280,7 @@ export function ConnectPage() {
               <span>
                 GitHub Enterprise Server hostname <span className="optional-mark">(optional)</span>
               </span>
-              <input
+              <Input
                 type="text"
                 name="host"
                 autoComplete="off"
@@ -299,13 +296,12 @@ export function ConnectPage() {
                   : "Failed to connect."}
               </p>
             )}
-            <button
+            <Button
               type="submit"
-              className="button button--primary"
               disabled={connectPatMutation.isPending}
             >
               {connectPatMutation.isPending ? "Connecting…" : "Connect"}
-            </button>
+            </Button>
           </form>
         </>
       )}
@@ -325,7 +321,7 @@ export function ConnectPage() {
           >
             <label className="form__field">
               <span>App ID</span>
-              <input
+              <Input
                 type="text"
                 name="appId"
                 autoComplete="off"
@@ -337,9 +333,9 @@ export function ConnectPage() {
             </label>
             <label className="form__field">
               <span>Private key (.pem)</span>
-              <textarea
+              <Textarea
                 name="privateKeyPem"
-                className="form__textarea form__textarea--mono"
+                className="font-mono text-sm"
                 rows={8}
                 autoComplete="off"
                 value={privateKeyPem}
@@ -352,7 +348,7 @@ export function ConnectPage() {
               <span>
                 GitHub Enterprise Server hostname <span className="optional-mark">(optional)</span>
               </span>
-              <input
+              <Input
                 type="text"
                 name="host"
                 autoComplete="off"
@@ -368,9 +364,9 @@ export function ConnectPage() {
                   : "Failed to list installations."}
               </p>
             )}
-            <button type="submit" className="button button--primary" disabled={!canListInstallations}>
+            <Button type="submit" disabled={!canListInstallations}>
               {listInstallationsMutation.isPending ? "Listing installations…" : "List installations"}
-            </button>
+            </Button>
           </form>
 
           {listInstallationsMutation.data && (

@@ -1,4 +1,4 @@
-import type { ComponentType, SVGProps } from "react";
+import { Fragment, type ComponentType, type SVGProps } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   IconEye,
@@ -10,6 +10,7 @@ import {
   IconShieldCheck,
 } from "./icons";
 import { useSelection } from "../state/SelectionContext";
+import { cn } from "@/lib/utils";
 
 export interface StepDef {
   path: string;
@@ -70,8 +71,8 @@ export function Stepper() {
   );
 
   return (
-    <nav className="stepper" aria-label="Workflow steps">
-      <ol>
+    <nav className="w-full pb-3" aria-label="Workflow steps">
+      <ol className="flex w-full items-center">
         {STEPS.map((step, index) => {
           const isCurrent = index === currentIndex;
           const isPast =
@@ -79,41 +80,65 @@ export function Stepper() {
             index < currentIndex &&
             (!step.sessionDependent || hasActiveSelection);
           const isDisabled = Boolean(step.needsJobId) && !currentJobId;
-          const className = [
-            "stepper__item",
-            isCurrent ? "stepper__item--current" : "",
-            isPast ? "stepper__item--past" : "",
-            isDisabled ? "stepper__item--disabled" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
           const target = step.needsJobId ? `${step.path}/${currentJobId}` : step.path;
+          // Purely decorative progress-line fill — how far you've navigated,
+          // not whether a session-dependent step (Select/Define) actually
+          // has real state behind it. That distinction only matters for the
+          // node's own click affordance (isPast/isDisabled below), not for
+          // this connecting line.
+          const lineBeforeFilled = currentIndex >= 0 && index <= currentIndex;
 
           const Icon = step.icon;
 
+          const circleClassName = cn(
+            "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+            isCurrent || isPast ? "bg-link text-white" : "bg-muted text-muted-foreground",
+          );
+
+          const labelClassName = cn(
+            "flex h-[15px] items-center gap-1.5 whitespace-nowrap text-[0.8125rem] leading-[15px] transition-colors",
+            isCurrent ? "font-semibold text-foreground" : "text-muted-foreground",
+            !isCurrent && isPast && "text-foreground/80",
+            !isCurrent && !isDisabled && "group-hover:text-foreground",
+            isDisabled && "text-muted-foreground/50",
+          );
+
+          const node = (
+            <div className="flex flex-col items-center gap-2">
+              <span className={circleClassName}>{index + 1}</span>
+              <span className={labelClassName}>
+                <Icon size={15} className="block shrink-0 self-center" />
+                {step.label}
+              </span>
+            </div>
+          );
+
           return (
-            <li key={step.path} className={className}>
-              {isDisabled ? (
-                <span
-                  className="stepper__link stepper__link--disabled"
-                  title="Create a job first — start from Define"
-                >
-                  <span className="stepper__index">{index + 1}</span>
-                  <Icon size={15} />
-                  <span className="stepper__label">{step.label}</span>
-                </span>
-              ) : (
-                <Link
-                  to={target}
-                  className="stepper__link"
-                  aria-current={isCurrent ? "step" : undefined}
-                >
-                  <span className="stepper__index">{index + 1}</span>
-                  <Icon size={15} />
-                  <span className="stepper__label">{step.label}</span>
-                </Link>
+            <Fragment key={step.path}>
+              {index > 0 && (
+                <li
+                  aria-hidden="true"
+                  className={cn(
+                    "mx-1.5 h-0.5 flex-1 rounded-full transition-colors",
+                    lineBeforeFilled ? "bg-link" : "bg-border",
+                  )}
+                />
               )}
-            </li>
+              <li className="group flex shrink-0">
+                {isDisabled ? (
+                  <span
+                    className="cursor-not-allowed"
+                    title="Create a job first — start from Define"
+                  >
+                    {node}
+                  </span>
+                ) : (
+                  <Link to={target} aria-current={isCurrent ? "step" : undefined}>
+                    {node}
+                  </Link>
+                )}
+              </li>
+            </Fragment>
           );
         })}
       </ol>

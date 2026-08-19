@@ -11,6 +11,7 @@ import {
 } from "../lib/repoRunStatus";
 import { StatusChip } from "../components/StatusChip";
 import { EmptyState } from "../components/EmptyState";
+import { Button } from "@/components/ui/button";
 
 // Statuses that mean "this repo is no longer in flight" for the live count.
 const DONE_REPO_RUN_STATUSES: RepoRunStatus[] = ["SUCCESS", "FAILED", "SKIPPED"];
@@ -156,9 +157,9 @@ export function ExecutePage() {
       </ul>
 
       {isTerminal && (
-        <Link to={`/results/${jobId}`} className="button button--primary">
-          View results
-        </Link>
+        <Button asChild>
+          <Link to={`/results/${jobId}`}>View results</Link>
+        </Button>
       )}
     </div>
   );

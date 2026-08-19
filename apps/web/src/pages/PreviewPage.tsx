@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import type { JobView, RepoRunFile } from "@bulk-github-update-tool/shared-types";
 import { apiGet } from "../api/client";
+import { Button } from "@/components/ui/button";
 import {
   deriveDiffStatus,
   DIFF_STATUS_ICON,
@@ -209,9 +210,9 @@ export function PreviewPage() {
           </div>
         ))}
 
-      <Link to={`/confirm/${jobId}`} className="button button--primary">
-        Continue to confirm
-      </Link>
+      <Button asChild>
+        <Link to={`/confirm/${jobId}`}>Continue to confirm</Link>
+      </Button>
     </div>
   );
 }

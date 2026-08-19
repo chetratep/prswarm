@@ -1,38 +1,78 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Design tokens are GitHub's own Primer palette (light theme) — the app is
+   a tool for managing GitHub repos, so its chrome borrows GitHub's actual
+   visual language rather than an invented one. --primary/--ring etc. feed
+   shadcn/ui's components (Button, Input, ...) directly; the --color-*
+   aliases below let the app's pre-existing hand-written CSS (still used by
+   several pages not yet converted to shadcn components) pick up the same
+   palette without a line-by-line rewrite. */
 :root {
   color-scheme: light;
 
-  --color-bg: #fafafc;
-  --color-surface: #ffffff;
-  --color-surface-sunken: #f4f4f8;
-  --color-border: #e6e6ee;
-  --color-border-strong: #d6d6e2;
-  --color-text: #17171f;
-  --color-text-muted: #6b6b7a;
-  --color-text-faint: #9999a8;
+  --background: #ffffff;
+  --foreground: #1f2328;
+  --card: #ffffff;
+  --card-foreground: #1f2328;
+  --popover: #ffffff;
+  --popover-foreground: #1f2328;
 
-  --color-primary: #5b5fef;
-  --color-primary-hover: #4a4dd1;
-  --color-primary-bg: #eef0fe;
+  /* GitHub's primary-action green (Save/Create/Run buttons). */
+  --primary: #1f883d;
+  --primary-foreground: #ffffff;
+  --secondary: #f6f8fa;
+  --secondary-foreground: #24292f;
+  --muted: #f6f8fa;
+  --muted-foreground: #59636e;
+  --accent: #f6f8fa;
+  --accent-foreground: #1f2328;
 
-  --color-success: #1f9d55;
-  --color-success-bg: #e7f7ed;
-  --color-warning: #b7791f;
-  --color-warning-bg: #fdf3e3;
-  --color-danger: #d1373f;
-  --color-danger-bg: #fcebec;
+  --destructive: #cf222e;
+  --destructive-foreground: #ffffff;
+  --success: #1a7f37;
+  --success-foreground: #ffffff;
+  --warning: #9a6700;
+  --warning-foreground: #ffffff;
+  /* GitHub's link/focus/selected-state blue — distinct from --primary, which
+     is reserved for the main action button, exactly as on github.com. */
+  --link: #0969da;
 
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 16px;
+  --border: #d1d9e0;
+  --input: #d1d9e0;
+  --ring: #0969da;
 
-  --shadow-sm: 0 1px 2px rgba(23, 23, 31, 0.05);
-  --shadow-md: 0 6px 20px rgba(23, 23, 31, 0.07), 0 1px 2px rgba(23, 23, 31, 0.05);
-  --shadow-lg: 0 16px 40px rgba(23, 23, 31, 0.12), 0 2px 8px rgba(23, 23, 31, 0.06);
+  --radius: 0.375rem;
 
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, Helvetica, Arial,
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial,
     sans-serif;
+
+  --color-bg: #f6f8fa;
+  --color-surface: var(--card);
+  --color-surface-sunken: var(--muted);
+  --color-border: var(--border);
+  --color-border-strong: #afb8c1;
+  --color-text: var(--foreground);
+  --color-text-muted: var(--muted-foreground);
+  --color-text-faint: #6e7781;
+
+  --color-primary: var(--link);
+  --color-primary-hover: #0550ae;
+  --color-primary-bg: #ddf4ff;
+
+  --color-success: var(--success);
+  --color-success-bg: #dafbe1;
+  --color-warning: var(--warning);
+  --color-warning-bg: #fff8c5;
+  --color-danger: var(--destructive);
+  --color-danger-bg: #ffebe9;
+
+  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
+  --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
 }
 
 * {
@@ -146,6 +186,7 @@ code {
 }
 
 .app-header__user {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -158,6 +199,47 @@ code {
   color: var(--color-text);
   font-family: var(--font-mono);
   font-weight: 600;
+}
+
+.app-header__logout {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.app-header__logout:hover {
+  color: var(--color-primary);
+}
+
+.app-header__logout:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.app-header__change-password {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  min-width: 220px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-sm);
+  z-index: 10;
+}
+
+.app-header__change-password input {
+  font-size: 0.85rem;
 }
 
 .app-main {
@@ -1484,4 +1566,65 @@ code {
   background: var(--color-surface);
   color: var(--color-text);
   min-width: 140px;
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial,
+    sans-serif;
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-link: var(--link);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

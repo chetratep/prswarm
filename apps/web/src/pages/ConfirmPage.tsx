@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { ExecuteJobRequest, JobView, RepoRun } from "@bulk-github-update-tool/shared-types";
 import { apiGet, apiPost } from "../api/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   deriveDiffStatus,
   DIFF_STATUS_ICON,
@@ -90,9 +92,9 @@ export function ConfirmPage() {
       <div className="page">
         <h2>Confirm</h2>
         <p className="page__intro">This job is already running.</p>
-        <Link to={`/execute/${jobId}`} className="button button--primary">
-          Watch live progress
-        </Link>
+        <Button asChild>
+          <Link to={`/execute/${jobId}`}>Watch live progress</Link>
+        </Button>
       </div>
     );
   }
@@ -106,9 +108,9 @@ export function ConfirmPage() {
           <strong>{JOB_STATUS_LABEL[job.status]}</strong>. Failed repos can be retried from
           Results.
         </p>
-        <Link to={`/results/${jobId}`} className="button button--primary">
-          View results
-        </Link>
+        <Button asChild>
+          <Link to={`/results/${jobId}`}>View results</Link>
+        </Button>
       </div>
     );
   }
@@ -200,7 +202,7 @@ export function ConfirmPage() {
               <strong>{CONFIRM_PHRASE}</strong> to confirm you want to run this.
             </span>
           </p>
-          <input
+          <Input
             type="text"
             value={confirmText}
             onChange={(event) => setConfirmText(event.target.value)}
@@ -217,14 +219,13 @@ export function ConfirmPage() {
         </p>
       )}
 
-      <button
+      <Button
         type="button"
-        className="button button--primary"
         disabled={!canRun || executeMutation.isPending}
         onClick={() => executeMutation.mutate()}
       >
         {executeMutation.isPending ? "Starting run…" : "Confirm & run"}
-      </button>
+      </Button>
     </div>
   );
 }

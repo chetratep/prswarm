@@ -11,6 +11,17 @@ import { useSelection } from "../state/SelectionContext";
 import { OrgBadge } from "../components/OrgBadge";
 import { EmptyState } from "../components/EmptyState";
 import { IconSearch } from "../components/icons";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const CONNECTION_QUERY_KEY = ["connection", "current"] as const;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -162,14 +173,16 @@ export function SelectPage() {
                   {repos.map((fullName) => (
                     <span key={fullName} className="chip chip--selected-repo">
                       {fullName.slice(owner.length + 1)}
-                      <button
+                      <Button
                         type="button"
-                        className="chip__remove"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="h-4 w-4"
                         aria-label={`Remove ${fullName}`}
                         onClick={() => toggleRepo(fullName)}
                       >
                         ×
-                      </button>
+                      </Button>
                     </span>
                   ))}
                 </div>
@@ -216,7 +229,7 @@ export function SelectPage() {
           <div className="repo-section__controls">
             <span className="repo-search-wrap">
               <IconSearch size={15} />
-              <input
+              <Input
                 type="search"
                 placeholder="Filter repos by name…"
                 value={search}
@@ -224,7 +237,7 @@ export function SelectPage() {
                 className="repo-search"
               />
             </span>
-            <input
+            <Input
               type="search"
               placeholder="Filter by language…"
               value={language}
@@ -232,7 +245,7 @@ export function SelectPage() {
               className="repo-search repo-filter"
               aria-label="Filter by language"
             />
-            <input
+            <Input
               type="search"
               placeholder="Filter by topic…"
               value={topic}
@@ -240,25 +253,32 @@ export function SelectPage() {
               className="repo-search repo-filter"
               aria-label="Filter by topic"
             />
-            <select
-              value={archived}
-              onChange={(event) => setArchived(event.target.value as "" | "true" | "false")}
-              className="repo-filter-select"
-              aria-label="Filter by archived status"
+            <Select
+              value={archived === "" ? "all" : archived}
+              onValueChange={(value) =>
+                setArchived(value === "all" ? "" : (value as "true" | "false"))
+              }
             >
-              <option value="">All</option>
-              <option value="false">Active only</option>
-              <option value="true">Archived only</option>
-            </select>
-            <label className="select-all">
-              <input
-                type="checkbox"
+              <SelectTrigger aria-label="Filter by archived status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="false">Active only</SelectItem>
+                <SelectItem value="true">Archived only</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="select-all flex items-center gap-2">
+              <Checkbox
+                id="select-all-visible"
                 checked={allVisibleSelected}
-                onChange={toggleSelectAllVisible}
+                onCheckedChange={toggleSelectAllVisible}
                 disabled={repos.length === 0}
               />
-              Select all visible
-            </label>
+              <Label htmlFor="select-all-visible" className="cursor-pointer font-normal">
+                Select all visible
+              </Label>
+            </div>
           </div>
 
           {reposQuery.isLoading && <p>Loading repos…</p>}
@@ -272,17 +292,19 @@ export function SelectPage() {
             <ul className="repo-list">
               {repos.map((repo) => (
                 <li key={repo.fullName} className="repo-list__item">
-                  <label>
-                    <input
-                      type="checkbox"
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`repo-${repo.fullName}`}
                       checked={selectedRepos.has(repo.fullName)}
-                      onChange={() => toggleRepo(repo.fullName)}
+                      onCheckedChange={() => toggleRepo(repo.fullName)}
                     />
-                    <span className="repo-list__name">{repo.fullName}</span>
-                    {repo.private && <span className="badge badge--muted">private</span>}
-                    {repo.archived && <span className="badge badge--muted">archived</span>}
-                    {repo.language && <span className="badge badge--muted">{repo.language}</span>}
-                  </label>
+                    <Label htmlFor={`repo-${repo.fullName}`} className="cursor-pointer font-normal">
+                      <span className="repo-list__name">{repo.fullName}</span>
+                      {repo.private && <span className="badge badge--muted">private</span>}
+                      {repo.archived && <span className="badge badge--muted">archived</span>}
+                      {repo.language && <span className="badge badge--muted">{repo.language}</span>}
+                    </Label>
+                  </div>
                 </li>
               ))}
               {repos.length === 0 && (
@@ -297,9 +319,11 @@ export function SelectPage() {
 
       {selectedRepos.size > 0 && (
         <div className="page__footer-actions">
-          <Link to="/define" className="button button--primary">
-            Continue with {selectedRepos.size} repo{selectedRepos.size === 1 ? "" : "s"}
-          </Link>
+          <Button asChild>
+            <Link to="/define">
+              Continue with {selectedRepos.size} repo{selectedRepos.size === 1 ? "" : "s"}
+            </Link>
+          </Button>
         </div>
       )}
     </div>

@@ -19,6 +19,20 @@ function noteUnauthorized() {
   }));
 }
 
+/** Thrown by handleResponse instead of a plain Error so call sites that need
+ * to branch on the specific failure (e.g. LoginForm distinguishing "rate
+ * limited" from "wrong password") can check `.status` instead of pattern-
+ * matching the server's message text. */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   try {
     const body = await res.clone().json();
@@ -35,7 +49,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     noteUnauthorized();
   }
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res));
+    throw new ApiError(await extractErrorMessage(res), res.status);
   }
   // Some endpoints (e.g. logout) may return an empty 204 body.
   const text = await res.text();

@@ -46,6 +46,14 @@ export function getUserRowByUsername(db: AppDatabase, username: string): UserRow
   return row ?? null;
 }
 
+/** Includes password_hash — only for the self-service change-password route
+ * to bcrypt-compare the caller's current password against. Every other
+ * caller should use getUserById/listUsers instead. */
+export function getUserRowById(db: AppDatabase, id: string): UserRow | null {
+  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
+  return row ?? null;
+}
+
 export function getUserById(db: AppDatabase, id: string): User | null {
   const row = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
   return row ? rowToUser(row) : null;

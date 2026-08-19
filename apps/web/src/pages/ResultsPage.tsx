@@ -17,6 +17,8 @@ import {
 import { StatusChip } from "../components/StatusChip";
 import { EmptyState } from "../components/EmptyState";
 import { IconChevronDown, IconChevronUp } from "../components/icons";
+import { Button } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 export function ResultsPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -130,33 +132,33 @@ export function ResultsPage() {
                 : "Retry failed to start."}
             </p>
           )}
-          <button
+          <Button
             type="button"
-            className="button button--secondary"
+            variant="outline"
             disabled={retryMutation.isPending}
             onClick={() => retryMutation.mutate()}
           >
             {retryMutation.isPending ? "Starting retry…" : "Retry failed"}
-          </button>
+          </Button>
         </div>
       )}
 
-      <table className="results-table">
-        <thead>
-          <tr>
-            <th>Repo</th>
-            <th>Status</th>
-            <th>Outcome</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="results-table">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Repo</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Outcome</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {repoRuns.map((run) => {
             const files = filesByRepoRunId.get(run.id) ?? [];
             const isOpen = expandedRepos.has(run.id);
             return (
               <Fragment key={run.id}>
-                <tr>
-                  <td className="results-table__repo">
+                <TableRow>
+                  <TableCell className="results-table__repo">
                     <button
                       type="button"
                       className="repo-run__header"
@@ -171,15 +173,15 @@ export function ResultsPage() {
                         </span>
                       )}
                     </button>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <StatusChip
                       className={repoRunChipClass(run.status)}
                       icon={REPO_RUN_STATUS_ICON[run.status]}
                       label={REPO_RUN_STATUS_LABEL[run.status]}
                     />
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {run.status === "FAILED" && run.errorMessage && (
                       <span className="form__error-inline">{run.errorMessage}</span>
                     )}
@@ -197,11 +199,11 @@ export function ResultsPage() {
                         View PR
                       </a>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
                 {isOpen && files.length > 0 && (
-                  <tr>
-                    <td colSpan={3}>
+                  <TableRow>
+                    <TableCell colSpan={3}>
                       {/* Preview-time diff status per file — not whether this
                           specific file was actually written at execute time.
                           repo_run_files rows are write-once at preview, so
@@ -226,21 +228,21 @@ export function ResultsPage() {
                           );
                         })}
                       </ul>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )}
               </Fragment>
             );
           })}
           {repoRuns.length === 0 && (
-            <tr>
-              <td colSpan={3}>
+            <TableRow>
+              <TableCell colSpan={3}>
                 <EmptyState message="No repos in this job." />
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           )}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

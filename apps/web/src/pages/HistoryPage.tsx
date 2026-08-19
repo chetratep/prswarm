@@ -6,6 +6,8 @@ import { JOB_STATUS_ICON, JOB_STATUS_LABEL } from "../lib/repoRunStatus";
 import { StatusChip } from "../components/StatusChip";
 import { EmptyState } from "../components/EmptyState";
 import { IconCheckCircle, IconHistory, IconMinusCircle, IconXCircle } from "../components/icons";
+import { Button } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 export function HistoryPage() {
   const navigate = useNavigate();
@@ -50,49 +52,49 @@ export function HistoryPage() {
           icon={<IconHistory size={22} />}
           message="No runs yet — start one from Select."
           action={
-            <Link to="/select" className="button button--secondary">
-              Go to Select
-            </Link>
+            <Button asChild variant="outline">
+              <Link to="/select">Go to Select</Link>
+            </Button>
           }
         />
       )}
 
       {jobs.length > 0 && (
-        <table className="results-table history-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Files</th>
-              <th>Repos</th>
-              <th>Orgs</th>
-              <th>Outcome</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="results-table history-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Files</TableHead>
+              <TableHead>Repos</TableHead>
+              <TableHead>Orgs</TableHead>
+              <TableHead>Outcome</TableHead>
+              <TableHead>Created</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {jobs.map((entry) => (
-              <tr
+              <TableRow
                 key={entry.job.id}
-                className="history-row"
+                className="history-row cursor-pointer"
                 onClick={() => navigate(`/results/${entry.job.id}`)}
               >
-                <td>
+                <TableCell>
                   <Link to={`/results/${entry.job.id}`} className="history-row__name">
                     {entry.changeSetName}
                   </Link>
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <StatusChip
                     className={`chip chip--job-${entry.job.status.toLowerCase()}`}
                     icon={JOB_STATUS_ICON[entry.job.status]}
                     label={JOB_STATUS_LABEL[entry.job.status] ?? entry.job.status}
                   />
-                </td>
-                <td>{entry.fileCount}</td>
-                <td>{entry.repoCount}</td>
-                <td>{entry.orgCount}</td>
-                <td className="history-row__outcome">
+                </TableCell>
+                <TableCell>{entry.fileCount}</TableCell>
+                <TableCell>{entry.repoCount}</TableCell>
+                <TableCell>{entry.orgCount}</TableCell>
+                <TableCell className="history-row__outcome">
                   {entry.successCount > 0 && (
                     <StatusChip className="chip chip--new" icon={IconCheckCircle} label={`${entry.successCount} ok`} />
                   )}
@@ -106,12 +108,12 @@ export function HistoryPage() {
                   {entry.failedCount > 0 && (
                     <StatusChip className="chip chip--error" icon={IconXCircle} label={`${entry.failedCount} failed`} />
                   )}
-                </td>
-                <td className="history-row__created">{new Date(entry.job.createdAt).toLocaleString()}</td>
-              </tr>
+                </TableCell>
+                <TableCell className="history-row__created">{new Date(entry.job.createdAt).toLocaleString()}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
     </div>
   );

@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ListUsersResponse } from "@bulk-github-update-tool/shared-types";
 import { apiGet, apiPost } from "../api/client";
+import { Button } from "@/components/ui/button";
+import { PasswordInput } from "@/components/ui/password-input";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 
 const USERS_QUERY_KEY = ["admin", "users"] as const;
 
@@ -52,73 +55,79 @@ export function AdminUsersPage() {
   return (
     <div className="page">
       <h2>Users</h2>
-      <table className="results-table">
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Username</TableHead>
+            <TableHead>Role</TableHead>
+            <TableHead>Created</TableHead>
+            <TableHead>Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {usersQuery.data.users.map((user) => (
-            <tr key={user.id}>
-              <td>{user.username}</td>
-              <td>
+            <TableRow key={user.id}>
+              <TableCell>{user.username}</TableCell>
+              <TableCell>
                 <span className={`badge ${user.role === "admin" ? "" : "badge--muted"}`}>{user.role}</span>
-              </td>
-              <td>{new Date(user.createdAt).toLocaleString()}</td>
-              <td>
+              </TableCell>
+              <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
+              <TableCell>
                 <div className="admin-users__actions">
                   {user.role !== "admin" && (
-                    <button
+                    <Button
                       type="button"
-                      className="button-link"
+                      variant="link"
+                      className="text-link h-auto p-0"
                       disabled={promoteMutation.isPending}
                       onClick={() => promoteMutation.mutate(user.id)}
                     >
                       Promote to admin
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
                     type="button"
-                    className="button-link"
+                    variant="link"
+                    className="text-link h-auto p-0"
                     onClick={() => {
                       setResetTargetId(user.id);
                       setNewPassword("");
                     }}
                   >
                     Reset password
-                  </button>
+                  </Button>
                 </div>
                 {resetTargetId === user.id && (
                   <div className="admin-users__reset">
-                    <input
-                      type="password"
+                    <PasswordInput
                       placeholder="New password (min 8 characters)"
                       value={newPassword}
                       onChange={(event) => setNewPassword(event.target.value)}
                       minLength={8}
                     />
-                    <button
+                    <Button
                       type="button"
-                      className="button button--secondary"
+                      variant="outline"
                       disabled={newPassword.length < 8 || resetPasswordMutation.isPending}
                       onClick={() => resetPasswordMutation.mutate(user.id)}
                     >
                       Set password
-                    </button>
-                    <button type="button" className="button-link" onClick={() => setResetTargetId(null)}>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="text-link h-auto p-0"
+                      onClick={() => setResetTargetId(null)}
+                    >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 )}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

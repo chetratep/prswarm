@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, type FormEvent } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiPost, useSession, SESSION_QUERY_KEY } from "./api/client";
+import { useMutation } from "@tanstack/react-query";
+import { ApiError, apiPost, useSession, SESSION_QUERY_KEY } from "./api/client";
 import { Stepper } from "./components/Stepper";
 import { ConnectPage } from "./pages/ConnectPage";
 import { SelectPage } from "./pages/SelectPage";
@@ -13,6 +13,20 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { SelectionProvider } from "./state/SelectionContext";
 import { IconHistory, IconUser, LogoMark } from "./components/icons";
+import { ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 
 // Lazy: DefinePage pulls in CodeMirror + language packages, which roughly
 // quadrupled the bundle (230KB -> 860KB minified) for pages that never touch
@@ -20,24 +34,33 @@ import { IconHistory, IconUser, LogoMark } from "./components/icons";
 // editor only loads once someone actually reaches Define.
 const DefinePage = lazy(() => import("./pages/DefinePage").then((m) => ({ default: m.DefinePage })));
 
+// A hard reload (not queryClient.clear()) on every login/signup/logout
+// transition. This is deliberate, not a shortcut: queryClient.clear() wipes
+// the cache but doesn't reliably re-wake already-mounted observers (verified
+// directly — a component's useQuery can keep rendering its last value after
+// clear() until something else prompts a re-render), which is exactly the
+// bug this is fixing — a previous account's cached data (e.g. the admin
+// users list) staying visible for an instant after a different user logs
+// in on the same tab. A full reload guarantees a fresh JS heap and an empty
+// cache with no such window. Auth transitions are rare, coarse events, so
+// losing SPA smoothness here is an acceptable, simple trade for certainty.
+function reloadAfterAuthChange() {
+  window.location.href = "/";
+}
+
 function LoginForm() {
-  const queryClient = useQueryClient();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   const loginMutation = useMutation({
     mutationFn: () => apiPost<{ ok: true }>("/api/login", { username, password }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
-    },
+    onSuccess: reloadAfterAuthChange,
   });
 
   const signupMutation = useMutation({
     mutationFn: () => apiPost<{ user: unknown }>("/api/signup", { username, password }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
-    },
+    onSuccess: reloadAfterAuthChange,
   });
 
   const activeMutation = mode === "login" ? loginMutation : signupMutation;
@@ -53,7 +76,7 @@ function LoginForm() {
         <h1>{mode === "login" ? "Sign in" : "Create an account"}</h1>
         <label className="form__field">
           <span>Username</span>
-          <input
+          <Input
             type="text"
             name="username"
             autoComplete="username"
@@ -64,8 +87,7 @@ function LoginForm() {
         </label>
         <label className="form__field">
           <span>Password</span>
-          <input
-            type="password"
+          <PasswordInput
             name="password"
             autoComplete={mode === "login" ? "current-password" : "new-password"}
             value={password}
@@ -76,10 +98,14 @@ function LoginForm() {
         </label>
         {activeMutation.isError && (
           <p className="form__error" role="alert">
-            {activeMutation.error instanceof Error ? activeMutation.error.message : "Something went wrong."}
+            {activeMutation.error instanceof ApiError && activeMutation.error.status === 429
+              ? "Too many failed attempts from this device. This isn't about whether your password is right — wait 15 minutes, then try again."
+              : activeMutation.error instanceof Error
+                ? activeMutation.error.message
+                : "Something went wrong."}
           </p>
         )}
-        <button type="submit" className="button button--primary" disabled={activeMutation.isPending}>
+        <Button type="submit" disabled={activeMutation.isPending}>
           {activeMutation.isPending
             ? mode === "login"
               ? "Signing in…"
@@ -87,14 +113,15 @@ function LoginForm() {
             : mode === "login"
               ? "Sign in"
               : "Create account"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="button-link"
+          variant="link"
+          className="text-link h-auto p-0"
           onClick={() => setMode(mode === "login" ? "signup" : "login")}
         >
           {mode === "login" ? "Need an account? Sign up" : "Already have an account? Sign in"}
-        </button>
+        </Button>
       </form>
     </div>
   );
@@ -110,17 +137,123 @@ function LoginForm() {
 // implicit user".
 function CurrentUserBadge() {
   const sessionQuery = useSession();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
+  const logoutMutation = useMutation({
+    mutationFn: () => apiPost<{ ok: true }>("/api/logout", {}),
+    onSuccess: reloadAfterAuthChange,
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: true }>("/api/users/me/password", { currentPassword, newPassword }),
+    onSuccess: () => {
+      setChangePasswordOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+    },
+  });
 
   if (sessionQuery.isLoading) {
     return null;
   }
 
   const username = sessionQuery.data?.username;
+  const authenticated = sessionQuery.data?.authenticated;
   return (
-    <span className="app-header__user">
-      <IconUser size={15} />
-      Signed in as <strong>{username ?? "local"}</strong>
-    </span>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="rounded-full pl-2.5">
+            <IconUser size={15} />
+            <strong className="font-semibold">{username ?? "local"}</strong>
+            <ChevronDown size={14} className="text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        {authenticated && (
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>{username ?? "local"}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="whitespace-nowrap"
+              onSelect={() => {
+                changePasswordMutation.reset();
+                setChangePasswordOpen(true);
+              }}
+            >
+              Change password
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="whitespace-nowrap"
+              variant="destructive"
+              disabled={logoutMutation.isPending}
+              onSelect={() => logoutMutation.mutate()}
+            >
+              Log out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        )}
+      </DropdownMenu>
+      {authenticated && (
+        <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Change password</DialogTitle>
+            </DialogHeader>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                changePasswordMutation.mutate();
+              }}
+            >
+              <Label className="flex flex-col items-start gap-1">
+                <span>Current password</span>
+                <PasswordInput
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </Label>
+              <Label className="flex flex-col items-start gap-1">
+                <span>New password (min 8 characters)</span>
+                <PasswordInput
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  minLength={8}
+                  autoComplete="new-password"
+                />
+              </Label>
+              {changePasswordMutation.isError && (
+                <p className="form__error" role="alert">
+                  {changePasswordMutation.error instanceof Error
+                    ? changePasswordMutation.error.message
+                    : "Failed to change password."}
+                </p>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setChangePasswordOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    currentPassword.length === 0 ||
+                    newPassword.length < 8 ||
+                    changePasswordMutation.isPending
+                  }
+                >
+                  Save
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
 

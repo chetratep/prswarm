@@ -30,6 +30,11 @@ export interface ResetPasswordRequest {
   newPassword: string;
 }
 
+export interface ChangeOwnPasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 export type WriteMode = "CREATE_ONLY" | "OVERWRITE" | "UPSERT";
 export type ContentSource = "STATIC" | "TEMPLATE";
 export type BranchStrategy = "DEFAULT" | "NEW_BRANCH";

@@ -9,6 +9,15 @@ import type {
 import { apiPost } from "../api/client";
 import { languageExtensionsForPath, placeholderForPath } from "../lib/contentLanguage";
 import { IconChevronDown, IconChevronUp, IconTrash } from "./icons";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export interface FileEntryValue {
   filePath: string;
@@ -67,41 +76,45 @@ export function FileEntryEditor({
       <div className="file-entry__header">
         <span className="file-entry__index">File {index + 1}</span>
         <div className="file-entry__reorder">
-          <button
+          <Button
             type="button"
-            className="button-link"
+            variant="ghost"
+            size="icon-sm"
             onClick={() => onMoveUp(index)}
             disabled={!canMoveUp}
             aria-label={`Move file ${index + 1} up`}
           >
             <IconChevronUp size={15} />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="button-link"
+            variant="ghost"
+            size="icon-sm"
             onClick={() => onMoveDown(index)}
             disabled={!canMoveDown}
             aria-label={`Move file ${index + 1} down`}
           >
             <IconChevronDown size={15} />
-          </button>
+          </Button>
         </div>
-        <button
+        <Button
           type="button"
-          className="button button--secondary file-entry__remove"
+          variant="outline"
+          size="sm"
+          className="file-entry__remove"
           onClick={() => onRemove(index)}
           disabled={!canRemove}
         >
           <IconTrash size={14} />
           Remove
-        </button>
+        </Button>
       </div>
 
       <label className="form__field">
         <span>
           File path <span className="required-mark" aria-hidden="true">*</span>
         </span>
-        <input
+        <Input
           type="text"
           value={value.filePath}
           onChange={(event) => onChange(index, { ...value, filePath: event.target.value })}
@@ -114,14 +127,19 @@ export function FileEntryEditor({
         <span>
           Mode <span className="optional-mark">(optional — defaults to Upsert)</span>
         </span>
-        <select
+        <Select
           value={value.mode}
-          onChange={(event) => onChange(index, { ...value, mode: event.target.value as WriteMode })}
+          onValueChange={(v) => onChange(index, { ...value, mode: v as WriteMode })}
         >
-          <option value="CREATE_ONLY">Create only</option>
-          <option value="OVERWRITE">Overwrite</option>
-          <option value="UPSERT">Upsert</option>
-        </select>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="CREATE_ONLY">Create only</SelectItem>
+            <SelectItem value="OVERWRITE">Overwrite</SelectItem>
+            <SelectItem value="UPSERT">Upsert</SelectItem>
+          </SelectContent>
+        </Select>
       </label>
 
       <div className="form__field">
@@ -130,21 +148,21 @@ export function FileEntryEditor({
         </span>
 
         <div className="content-fetch-row">
-          <input
+          <Input
             type="url"
             value={sourceUrl}
             onChange={(event) => setSourceUrl(event.target.value)}
             placeholder="Or paste a raw file URL to fetch it — e.g. a GitHub raw link"
             className="content-fetch-row__input"
           />
-          <button
+          <Button
             type="button"
-            className="button button--secondary"
+            variant="outline"
             onClick={handleFetchContent}
             disabled={sourceUrl.trim() === "" || fetchContentMutation.isPending}
           >
             {fetchContentMutation.isPending ? "Fetching…" : "Fetch"}
-          </button>
+          </Button>
         </div>
         {fetchContentMutation.isError && (
           <p className="form__error" role="alert">
