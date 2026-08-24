@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",
+    "compile": "bun run scripts/compile.ts",
     "lint": "bun run --filter '*' --if-present lint",
     "test": "bun run --filter '*' --if-present test",
     "typecheck": "bun run --filter '*' --if-present typecheck"
