@@ -25,6 +25,14 @@ for (const arg of process.argv.slice(2)) {
 
 const target = args.get("target"); // e.g. "bun-linux-arm64" — see https://bun.com/docs/bundler/executables
 const isWindowsTarget = target ? target.includes("windows") : process.platform === "win32";
+// Confirmed live in the release workflow (cross-compiling bun-windows-x64
+// from an ubuntu-latest runner): Bun rejects --windows-icon/--windows-title
+// with "only available when compiling on Windows" unless the *host* is
+// actually Windows, regardless of --target. So a cross-compiled Windows
+// binary ships without the custom icon/title — a real Bun limitation, not
+// a bug here — while `bun run compile` run directly on Windows (this
+// machine, today) still gets both.
+const canSetWindowsMetadata = isWindowsTarget && process.platform === "win32";
 const outfile = args.has("outfile")
   ? path.resolve(repoRoot, args.get("outfile")!)
   : path.join(repoRoot, "dist/prswarm");
@@ -46,7 +54,7 @@ try {
   const compileArgs = ["build", "apps/api/src/index.ts", "--compile"];
   if (target) compileArgs.push(`--target=${target}`);
   compileArgs.push("--outfile", outfile);
-  if (isWindowsTarget) {
+  if (canSetWindowsMetadata) {
     const iconPath = path.join(repoRoot, "apps/web/public/favicon.ico");
     if (fs.existsSync(iconPath)) compileArgs.push(`--windows-icon=${iconPath}`);
     compileArgs.push("--windows-title=PRSwarm");
