@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   // rather than the first time a connection is saved.
   assertEncryptionKeyConfigured();
 
-  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+  const port = process.env.API_PORT ? Number(process.env.API_PORT) : 3000;
   const databasePath = process.env.DATABASE_PATH
     ? path.resolve(repoRoot, process.env.DATABASE_PATH)
     : path.join(defaultDataDir(), "app.db");

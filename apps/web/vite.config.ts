@@ -12,15 +12,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // Neither var is named `PORT` — that generic name is what dev-server
+    // launchers (including some hosting platforms) inject to mean "bind
+    // yourself here," so a launcher can hand out PORT=5173 to this very
+    // process. If this file read `PORT` for either its own bind or the
+    // API's location, that injected value would collide with one of the
+    // two meanings. VITE_PORT and API_PORT are unambiguous either way.
+    port: Number(process.env.VITE_PORT ?? 5173),
     proxy: {
-      // Deliberately not `PORT` — that name is reserved for "the port this
-      // process itself binds to" (used that way by apps/api, and by tooling
-      // that launches dev servers and injects PORT to control their bind
-      // port). Reusing it here for "the backend's port, as seen by the
-      // proxy" collides with that convention: a launcher that injects
-      // PORT=5173 (this dev server's own port) makes the proxy target
-      // itself instead of the API, causing every /api request to hang.
       "/api": {
         target: `http://localhost:${process.env.API_PORT ?? 4000}`,
         changeOrigin: true,

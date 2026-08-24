@@ -53,7 +53,7 @@ COPY --from=build /repo/apps/web/dist ./apps/api/public
 # `../public` relative to its own file at apps/api/src/index.ts — so the
 # public dir has to sit at apps/api/public, not the image root) — no
 # separate web container/process, one thing to run.
-ENV PORT=3000
+ENV API_PORT=3000
 ENV DATABASE_PATH=/app/data/app.db
 # If ENCRYPTION_KEY isn't passed in, secrets.ts falls back to a generated key
 # persisted under defaultDataDir() (apps/api/src/paths.ts), which on Linux
