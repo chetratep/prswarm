@@ -11,7 +11,7 @@
 // separate wiring needed — confirmed against @octokit/auth-app's own docs).
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
-import type { GithubAppInstallationSummary } from "@bulk-github-update-tool/shared-types";
+import type { GithubAppInstallationSummary } from "@prdispatch/shared-types";
 import { buildGheBaseUrl } from "./host.js";
 
 /** Lists every installation the given App ID + private key can see. Lets

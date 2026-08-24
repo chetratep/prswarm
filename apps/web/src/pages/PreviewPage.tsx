@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import type { JobView, RepoRunFile } from "@bulk-github-update-tool/shared-types";
+import type { JobView, RepoRunFile } from "@prdispatch/shared-types";
 import { apiGet } from "../api/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,7 @@ import {
   groupRepoRunFilesByRepoRunId,
   worstDiffStatus,
 } from "../lib/repoRunStatus";
-import type { RepoRun } from "@bulk-github-update-tool/shared-types";
+import type { RepoRun } from "@prdispatch/shared-types";
 import { StatusChip } from "../components/StatusChip";
 import { OrgBadge } from "../components/OrgBadge";
 import { EmptyState } from "../components/EmptyState";

@@ -2,7 +2,7 @@
 // as connectionsRepository.ts. `password_hash` never leaves this file except
 // via getUserRowByUsername, used only by the login route.
 import { randomUUID } from "node:crypto";
-import type { User, UserRole } from "@bulk-github-update-tool/shared-types";
+import type { User, UserRole } from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface UserRow {

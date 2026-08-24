@@ -11,7 +11,7 @@ import type {
   SessionStatus,
   SignupRequest,
   SignupResponse,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 import { getUserById, getUserRowByUsername, insertUser } from "../repositories/usersRepository.js";
 

@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
-import type { JobStatus, RepoRunFile, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
+import type { JobStatus, RepoRunFile, RepoRunStatus } from "@prdispatch/shared-types";
 import {
   IconAlertTriangle,
   IconCheckCircle,

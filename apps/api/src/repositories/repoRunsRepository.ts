@@ -6,7 +6,7 @@
 // file in a changeset. Same row<->domain-object mapping style as
 // connectionsRepository.ts.
 import { randomUUID } from "node:crypto";
-import type { RepoRun, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
+import type { RepoRun, RepoRunStatus } from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface RepoRunRow {

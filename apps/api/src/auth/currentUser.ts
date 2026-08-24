@@ -13,7 +13,7 @@
 // if and only if AUTH_ENABLED is genuinely false (see the final
 // whole-branch review's I3 finding).
 import type { FastifyRequest } from "fastify";
-import type { UserRole } from "@bulk-github-update-tool/shared-types";
+import type { UserRole } from "@prdispatch/shared-types";
 
 export interface SessionUser {
   userId: string;

@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--filter", "@bulk-github-update-tool/web", "dev"],
+      "runtimeArgs": ["run", "--filter", "@prdispatch/web", "dev"],
       "port": 5173
     }
   ]

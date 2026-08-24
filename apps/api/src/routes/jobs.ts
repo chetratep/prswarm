@@ -26,7 +26,7 @@ import type {
   JobView,
   ListJobsResponse,
   RetryJobRequest,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";

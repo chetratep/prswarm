@@ -1,5 +1,5 @@
 {
-  "name": "@bulk-github-update-tool/api",
+  "name": "@prdispatch/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -21,7 +21,7 @@
     "dotenv": "^16.4.0",
     "p-limit": "^6.0.0",
     "zod": "^3.23.0",
-    "@bulk-github-update-tool/shared-types": "workspace:*"
+    "@prdispatch/shared-types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

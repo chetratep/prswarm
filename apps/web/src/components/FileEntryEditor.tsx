@@ -5,7 +5,7 @@ import type {
   FetchContentRequest,
   FetchContentResponse,
   WriteMode,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import { apiPost } from "../api/client";
 import { languageExtensionsForPath, placeholderForPath } from "../lib/contentLanguage";
 import { IconChevronDown, IconChevronUp, IconTrash } from "./icons";

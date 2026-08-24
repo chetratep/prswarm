@@ -14,7 +14,7 @@
 // is omitted entirely so Octokit falls back to its own github.com default —
 // no special-casing needed.
 import { Octokit } from "@octokit/rest";
-import type { Connection } from "@bulk-github-update-tool/shared-types";
+import type { Connection } from "@prdispatch/shared-types";
 import { getInstallationOctokit } from "./appAuth.js";
 import { buildGheBaseUrl } from "./host.js";
 

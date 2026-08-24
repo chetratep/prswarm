@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import type { ListJobsResponse } from "@bulk-github-update-tool/shared-types";
+import type { ListJobsResponse } from "@prdispatch/shared-types";
 import { apiGet } from "../api/client";
 import { JOB_STATUS_ICON, JOB_STATUS_LABEL } from "../lib/repoRunStatus";
 import { StatusChip } from "../components/StatusChip";

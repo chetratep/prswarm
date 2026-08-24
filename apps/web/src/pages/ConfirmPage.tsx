@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { ExecuteJobRequest, JobView, RepoRun } from "@bulk-github-update-tool/shared-types";
+import type { ExecuteJobRequest, JobView, RepoRun } from "@prdispatch/shared-types";
 import { apiGet, apiPost } from "../api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

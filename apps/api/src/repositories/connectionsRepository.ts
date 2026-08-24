@@ -3,7 +3,7 @@
 // control) — replacing a connection deletes only that user's old row,
 // inside a transaction, so it's a real per-user replace, never a global one.
 import { randomUUID } from "node:crypto";
-import type { Connection, ConnectionType } from "@bulk-github-update-tool/shared-types";
+import type { Connection, ConnectionType } from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface ConnectionRow {

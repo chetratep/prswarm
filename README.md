@@ -1,4 +1,4 @@
-# Bulk GitHub Update Tool
+# PRDispatch
 
 Push a file change — or a set of file changes — across a chosen set of GitHub orgs/repos, with a reviewed diff per file per repo before anything writes. Self-hosted, single-user, MIT licensed.
 
@@ -36,11 +36,11 @@ Web dev server: http://localhost:5173 (proxies `/api` to the backend on port 300
 Single container — no separate database or cache service to run.
 
 ```bash
-docker build -t bulk-github-update-tool .
+docker build -t prdispatch .
 docker run -p 3000:3000 \
   -e ENCRYPTION_KEY=<generate one, see .env.example> \
-  -v bulk-tool-data:/app/data \
-  bulk-github-update-tool
+  -v prdispatch-data:/app/data \
+  prdispatch
 ```
 
 The app (frontend + API) is served entirely from port 3000 — there's no separate Vite dev server in this mode.

@@ -5,7 +5,7 @@
 import os from "node:os";
 import path from "node:path";
 
-const APP_NAME = "bulk-github-update-tool";
+const APP_NAME = "prdispatch";
 
 export function defaultDataDir(): string {
   if (process.platform === "win32") {

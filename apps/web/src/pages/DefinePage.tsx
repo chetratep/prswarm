@@ -8,8 +8,8 @@ import type {
   CreateChangeSetResponse,
   CreateJobRequest,
   JobView,
-} from "@bulk-github-update-tool/shared-types";
-import { extractTemplateVariables } from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
+import { extractTemplateVariables } from "@prdispatch/shared-types";
 import { apiPost } from "../api/client";
 import { FileEntryEditor, type FileEntryValue } from "../components/FileEntryEditor";
 import { useSelection } from "../state/SelectionContext";

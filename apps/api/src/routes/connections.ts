@@ -16,7 +16,7 @@ import type {
   ConnectPatResponse,
   ListGithubAppInstallationsRequest,
   ListGithubAppInstallationsResponse,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import { encrypt } from "../crypto.js";
 import type { AppDatabase } from "../db.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";

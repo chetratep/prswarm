@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { Job, JobEvent, RepoRun, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
+import type { Job, JobEvent, RepoRun, RepoRunStatus } from "@prdispatch/shared-types";
 import {
   JOB_STATUS_ICON,
   JOB_STATUS_LABEL,

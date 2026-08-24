@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeSet, ChangeSetFile, RepoRun, RepoRunFile } from "@bulk-github-update-tool/shared-types";
+import type { ChangeSet, ChangeSetFile, RepoRun, RepoRunFile } from "@prdispatch/shared-types";
 import { executeRepoRun, slugify } from "./repoExecute.js";
 
 function stubChangeSet(overrides: Partial<ChangeSet> = {}): ChangeSet {

@@ -1,5 +1,5 @@
 {
-  "name": "@bulk-github-update-tool/shared-types",
+  "name": "@prdispatch/shared-types",
   "version": "0.1.0",
   "private": true,
   "type": "module",

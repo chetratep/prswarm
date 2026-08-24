@@ -9,7 +9,7 @@
 // Nothing awaits this function, so an unhandled rejection here would crash
 // the whole process — every exit path must go through the outer try/catch.
 import pLimit from "p-limit";
-import type { Job, JobStatus, RepoRun, RepoRunStatus } from "@bulk-github-update-tool/shared-types";
+import type { Job, JobStatus, RepoRun, RepoRunStatus } from "@prdispatch/shared-types";
 import type { AppDatabase } from "./db.js";
 import { loadOctokitForCurrentConnection } from "./github/loadConnection.js";
 import { executeRepoRun } from "./github/repoExecute.js";

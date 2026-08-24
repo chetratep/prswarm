@@ -5,7 +5,7 @@ import type {
   Connection,
   GitHubOrgSummary,
   GitHubRepoSummary,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import { apiGet, apiGetOrNull } from "../api/client";
 import { useSelection } from "../state/SelectionContext";
 import { OrgBadge } from "../components/OrgBadge";

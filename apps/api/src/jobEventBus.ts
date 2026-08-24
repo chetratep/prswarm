@@ -4,7 +4,7 @@
 // job can never receive another job's events and nothing lingers in memory
 // after a job's SSE clients disconnect.
 import { EventEmitter } from "node:events";
-import type { JobEvent } from "@bulk-github-update-tool/shared-types";
+import type { JobEvent } from "@prdispatch/shared-types";
 
 const emitters = new Map<string, EventEmitter>();
 

@@ -15,7 +15,7 @@ import type {
   ChangeOwnPasswordRequest,
   ListUsersResponse,
   ResetPasswordRequest,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 import { LOCAL_SENTINEL_USER, resolveCurrentUser } from "../auth/currentUser.js";
 import {

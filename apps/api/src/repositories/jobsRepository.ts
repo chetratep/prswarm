@@ -3,7 +3,7 @@
 // callers only need to pass the columns actually changing (e.g. just
 // `status`, or `status` + `completedAt`).
 import { randomUUID } from "node:crypto";
-import type { Job, JobStatus } from "@bulk-github-update-tool/shared-types";
+import type { Job, JobStatus } from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface JobRow {

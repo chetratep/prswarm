@@ -9,7 +9,7 @@ import type {
   ChangeSetFile,
   RepoFilter,
   TargetSelection,
-} from "@bulk-github-update-tool/shared-types";
+} from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface ChangeSetRow {

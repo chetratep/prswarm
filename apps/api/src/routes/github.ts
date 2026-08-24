@@ -1,7 +1,7 @@
 // Org/repo discovery routes. Both require a connection to already exist
 // (400 if not — see loadOctokitForCurrentConnection).
 import type { FastifyInstance, FastifyReply } from "fastify";
-import type { GitHubOrgSummary, GitHubRepoSummary } from "@bulk-github-update-tool/shared-types";
+import type { GitHubOrgSummary, GitHubRepoSummary } from "@prdispatch/shared-types";
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { getCurrentConnectionRow, type ConnectionRow } from "../repositories/connectionsRepository.js";
