@@ -1,0 +1,4 @@
+# install.sh is fetched and piped straight into `bash` from raw.githubusercontent.com
+# (see README) — CRLF line endings would break that on any platform, so this
+# is pinned regardless of what a given committer's local core.autocrlf does.
+*.sh text eol=lf

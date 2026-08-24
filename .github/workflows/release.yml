@@ -1,0 +1,119 @@
+name: Release
+
+# Triggered by pushing a version tag (v1.2.3), or manually for a re-run.
+# Builds a standalone binary for every platform from ONE ubuntu-latest
+# runner — `bun build --compile --target=bun-<os>-<arch>` cross-compiles by
+# downloading the target's own Bun runtime, no native per-OS runner needed
+# (see https://bun.com/docs/bundler/executables). Publishes a DRAFT release
+# with every binary attached, so nothing goes out until you review and hit
+# "Publish" yourself.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist, e.g. v1.2.3)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter '@prswarm/web' build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+          retention-days: 1
+
+  build-binaries:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-linux-x64
+            name: linux-x64
+          - target: bun-linux-arm64
+            name: linux-arm64
+          - target: bun-darwin-x64
+            name: macos-x64
+          - target: bun-darwin-arm64
+            name: macos-arm64
+          - target: bun-windows-x64
+            name: windows-x64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+      - name: Compile ${{ matrix.name }}
+        run: bun run compile -- --target=${{ matrix.target }} --outfile=dist/prswarm-${{ matrix.name }}
+
+      - name: Checksum
+        working-directory: dist
+        shell: bash
+        run: |
+          for f in prswarm-${{ matrix.name }}*; do
+            sha256sum "$f" >> "prswarm-${{ matrix.name }}.sha256"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.name }}
+          path: dist/prswarm-${{ matrix.name }}*
+          retention-days: 7
+
+  release:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Combine checksums
+        working-directory: release-assets
+        run: cat *.sha256 > SHA256SUMS.txt && rm -f prswarm-*.sha256
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.tag || github.ref_name }}" \
+            --draft \
+            --title "PRSwarm ${{ inputs.tag || github.ref_name }}" \
+            --generate-notes \
+            release-assets/*
