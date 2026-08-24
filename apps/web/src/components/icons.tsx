@@ -27,13 +27,20 @@ function iconBase(children: React.ReactNode) {
   };
 }
 
-/** The app's mark: a branch fanning into two — "one change, many repos". */
+/** The app's mark: one hub fanning out to several nodes at uneven angles
+ * and distances — "one change, swarming out to many repos at once". The
+ * asymmetry is deliberate: an evenly-spaced radial burst reads as a
+ * generic "share" or "sun" glyph, where the point is a single source
+ * dispersing to many independent, concurrently-acting targets. */
 export const LogoMark = iconBase(
   <>
-    <line x1="6" y1="3" x2="6" y2="15" />
-    <circle cx="18" cy="6" r="3" />
-    <circle cx="6" cy="18" r="3" />
-    <path d="M18 9a9 9 0 0 1-9 9" />
+    <circle cx="5" cy="12" r="2.3" />
+    <line x1="7" y1="10.8" x2="16.4" y2="5" />
+    <line x1="7.3" y1="12.1" x2="19.4" y2="12.9" />
+    <line x1="6.8" y1="13.4" x2="13.7" y2="18.9" />
+    <circle cx="18" cy="4" r="1.9" />
+    <circle cx="21" cy="13" r="1.6" />
+    <circle cx="15" cy="20" r="1.7" />
   </>
 );
 
