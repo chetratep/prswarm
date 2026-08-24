@@ -8,8 +8,8 @@ import type {
   CreateChangeSetResponse,
   CreateJobRequest,
   JobView,
-} from "@prdispatch/shared-types";
-import { extractTemplateVariables } from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
+import { extractTemplateVariables } from "@prswarm/shared-types";
 import { apiPost } from "../api/client";
 import { FileEntryEditor, type FileEntryValue } from "../components/FileEntryEditor";
 import { useSelection } from "../state/SelectionContext";

@@ -1,5 +1,5 @@
 {
-  "name": "@prdispatch/api",
+  "name": "@prswarm/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -21,7 +21,7 @@
     "dotenv": "^16.4.0",
     "p-limit": "^6.0.0",
     "zod": "^3.23.0",
-    "@prdispatch/shared-types": "workspace:*"
+    "@prswarm/shared-types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

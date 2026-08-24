@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { HealthResponse } from "@prdispatch/shared-types";
+import type { HealthResponse } from "@prswarm/shared-types";
 
 export async function registerHealthRoutes(app: FastifyInstance): Promise<void> {
   // No auth required — see the onRequest hook in src/auth/session.ts, which

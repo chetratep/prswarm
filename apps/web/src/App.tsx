@@ -302,7 +302,7 @@ function App() {
               <span className="app-header__logo">
                 <LogoMark size={17} />
               </span>
-              <h1 className="app-header__title">PRDispatch</h1>
+              <h1 className="app-header__title">PRSwarm</h1>
             </div>
             <div className="app-header__top-actions">
               <Link to="/history" className="app-header__nav-link">

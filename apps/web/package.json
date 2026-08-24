@@ -1,5 +1,5 @@
 {
-  "name": "@prdispatch/web",
+  "name": "@prswarm/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@prdispatch/shared-types": "workspace:*",
+    "@prswarm/shared-types": "workspace:*",
     "@codemirror/lang-json": "^6.0.1",
     "@codemirror/lang-markdown": "^6.3.0",
     "@codemirror/lang-yaml": "^6.1.1",

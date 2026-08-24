@@ -9,7 +9,7 @@ import type {
   ChangeSetFile,
   RepoFilter,
   TargetSelection,
-} from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface ChangeSetRow {

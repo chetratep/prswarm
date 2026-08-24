@@ -1,4 +1,4 @@
-# PRDispatch
+# PRSwarm
 
 Push one file change (e.g. `.github/workflows/pr-review.yml`) across a chosen set of GitHub orgs/repos, with a real per-repo diff reviewed before anything writes. Open source, MIT licensed, self-hosted, single-user.
 
@@ -55,7 +55,7 @@ The whole app — root workspace tooling, `apps/api`'s runtime and database laye
 
 - **`apps/api`'s `test` script is `bun test`, not `vitest run`.** `bun:sqlite` (which the database layer now uses natively, replacing `node:sqlite`) has no resolution path through Vitest's Vite-based module resolver. Bun's test runner has a compatibility layer that runs `import {...} from "vitest"`-style test files natively, so no test files needed rewriting — only the `package.json` script value changed.
 - **`@fastify/secure-session` needed no changes.** The spec flagged a risk that its native `sodium-native` dependency might not build/run under Bun; that did not materialize — it was verified working under Bun as-is, no fallback or replacement required.
-- **Bun does not hoist workspace-package symlinks into the root `node_modules/`** the way pnpm did — it places them per-consuming-workspace instead (e.g. `apps/api/node_modules/@prdispatch/shared-types`). Mainly matters for the `Dockerfile` (already accounted for there); worth knowing if you're debugging a "package not found" error and expect a root-level symlink that isn't there.
+- **Bun does not hoist workspace-package symlinks into the root `node_modules/`** the way pnpm did — it places them per-consuming-workspace instead (e.g. `apps/api/node_modules/@prswarm/shared-types`). Mainly matters for the `Dockerfile` (already accounted for there); worth knowing if you're debugging a "package not found" error and expect a root-level symlink that isn't there.
 - Built and verified against **Bun 1.3.14** (`engines.bun` in the root `package.json`).
 
 ## Content editor + fetch-from-URL (2026-08-17)

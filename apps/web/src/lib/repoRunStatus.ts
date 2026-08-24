@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
-import type { JobStatus, RepoRunFile, RepoRunStatus } from "@prdispatch/shared-types";
+import type { JobStatus, RepoRunFile, RepoRunStatus } from "@prswarm/shared-types";
 import {
   IconAlertTriangle,
   IconCheckCircle,

@@ -17,7 +17,7 @@ import {
   type CreateChangeSetResponse,
   type CreateJobRequest,
   type JobView,
-} from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";

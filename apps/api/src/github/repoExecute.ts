@@ -8,7 +8,7 @@
 // the job (jobQueue.ts loops over eligible repo_runs concurrently and
 // persists whatever this returns).
 import type { Octokit } from "@octokit/rest";
-import type { ChangeSet, ChangeSetFile, RepoRun, RepoRunFile } from "@prdispatch/shared-types";
+import type { ChangeSet, ChangeSetFile, RepoRun, RepoRunFile } from "@prswarm/shared-types";
 import { diffHasChanges } from "../diffUtils.js";
 import type { RepoRunUpdate } from "../repositories/repoRunsRepository.js";
 

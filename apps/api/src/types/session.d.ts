@@ -1,5 +1,5 @@
 import "@fastify/secure-session";
-import type { UserRole } from "@prdispatch/shared-types";
+import type { UserRole } from "@prswarm/shared-types";
 
 declare module "@fastify/secure-session" {
   interface SessionData {

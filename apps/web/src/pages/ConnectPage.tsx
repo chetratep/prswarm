@@ -6,7 +6,7 @@ import type {
   ConnectGithubAppResponse,
   ConnectPatResponse,
   ListGithubAppInstallationsResponse,
-} from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
 import { apiDelete, apiGetOrNull, apiPost } from "../api/client";
 import { IconCheckCircle, IconKey, IconPlug, IconTrash } from "../components/icons";
 import { Button } from "@/components/ui/button";

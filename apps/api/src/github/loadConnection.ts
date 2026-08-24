@@ -12,7 +12,7 @@
 // credential that actually previewed it (see routes/jobs.ts and
 // jobQueue.ts).
 import { Octokit } from "@octokit/rest";
-import type { Connection } from "@prdispatch/shared-types";
+import type { Connection } from "@prswarm/shared-types";
 import { decrypt } from "../crypto.js";
 import type { AppDatabase } from "../db.js";
 import { getCurrentConnectionRow } from "../repositories/connectionsRepository.js";

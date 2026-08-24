@@ -5,7 +5,7 @@
 import os from "node:os";
 import path from "node:path";
 
-const APP_NAME = "prdispatch";
+const APP_NAME = "prswarm";
 
 export function defaultDataDir(): string {
   if (process.platform === "win32") {

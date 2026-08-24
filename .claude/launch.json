@@ -4,8 +4,14 @@
     {
       "name": "web",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--filter", "@prdispatch/web", "dev"],
+      "runtimeArgs": ["run", "--filter", "@prswarm/web", "dev"],
       "port": 5173
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--filter", "@prswarm/api", "dev"],
+      "port": 4000
     }
   ]
 }

@@ -11,7 +11,7 @@
 // this returns).
 import { createTwoFilesPatch } from "diff";
 import type { Octokit } from "@octokit/rest";
-import type { ChangeSet, ChangeSetFile } from "@prdispatch/shared-types";
+import type { ChangeSet, ChangeSetFile } from "@prswarm/shared-types";
 import type { InsertRepoRunInput } from "../repositories/repoRunsRepository.js";
 import type { InsertRepoRunFileInput } from "../repositories/repoRunFilesRepository.js";
 

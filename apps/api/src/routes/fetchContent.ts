@@ -12,7 +12,7 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import type { FetchContentRequest, FetchContentResponse } from "@prdispatch/shared-types";
+import type { FetchContentRequest, FetchContentResponse } from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";
 import { getCurrentConnection } from "../repositories/connectionsRepository.js";

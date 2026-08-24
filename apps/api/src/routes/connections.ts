@@ -16,7 +16,7 @@ import type {
   ConnectPatResponse,
   ListGithubAppInstallationsRequest,
   ListGithubAppInstallationsResponse,
-} from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
 import { encrypt } from "../crypto.js";
 import type { AppDatabase } from "../db.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";

@@ -26,7 +26,7 @@ import type {
   JobView,
   ListJobsResponse,
   RetryJobRequest,
-} from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";

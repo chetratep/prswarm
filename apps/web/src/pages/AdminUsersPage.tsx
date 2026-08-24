@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ListUsersResponse } from "@prdispatch/shared-types";
+import type { ListUsersResponse } from "@prswarm/shared-types";
 import { apiGet, apiPost } from "../api/client";
 import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";

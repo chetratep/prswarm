@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Connection } from "@prdispatch/shared-types";
+import type { Connection } from "@prswarm/shared-types";
 import { buildOctokitForConnection } from "./client.js";
 
 function baseConnection(overrides: Partial<Connection> = {}): Connection {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeSet, ChangeSetFile } from "@prdispatch/shared-types";
+import type { ChangeSet, ChangeSetFile } from "@prswarm/shared-types";
 import { computeRepoRunPreview } from "./repoDiff.js";
 
 function stubChangeSet(overrides: Partial<ChangeSet> = {}): ChangeSet {

@@ -3,7 +3,7 @@
 // updated afterward (see RepoRunFile's field docs in shared-types for
 // why). Same row<->domain-object mapping style as repoRunsRepository.ts.
 import { randomUUID } from "node:crypto";
-import type { RepoRunFile } from "@prdispatch/shared-types";
+import type { RepoRunFile } from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface RepoRunFileRow {

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { SessionStatus } from "@prdispatch/shared-types";
+import type { SessionStatus } from "@prswarm/shared-types";
 import { queryClient } from "./queryClient";
 
 export const SESSION_QUERY_KEY = ["session"] as const;

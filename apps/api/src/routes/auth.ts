@@ -11,7 +11,7 @@ import type {
   SessionStatus,
   SignupRequest,
   SignupResponse,
-} from "@prdispatch/shared-types";
+} from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 import { getUserById, getUserRowByUsername, insertUser } from "../repositories/usersRepository.js";
 

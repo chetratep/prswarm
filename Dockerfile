@@ -10,7 +10,7 @@
 # back into that root store (e.g. apps/api/node_modules/fastify ->
 # ../../../node_modules/.bun/fastify@.../node_modules/fastify) plus a
 # symlink straight to the sibling workspace source
-# (apps/api/node_modules/@prdispatch/shared-types ->
+# (apps/api/node_modules/@prswarm/shared-types ->
 # ../../../../packages/shared-types). So the runtime image needs BOTH the
 # root node_modules (the actual store the symlinks resolve into) AND
 # apps/api's own node_modules (the symlinks themselves) AND
@@ -31,9 +31,9 @@ RUN bun install --frozen-lockfile
 COPY packages/shared-types packages/shared-types
 COPY apps/api apps/api
 COPY apps/web apps/web
-RUN bun run --filter '@prdispatch/shared-types' typecheck \
- && bun run --filter '@prdispatch/api' typecheck \
- && bun run --filter '@prdispatch/web' build
+RUN bun run --filter '@prswarm/shared-types' typecheck \
+ && bun run --filter '@prswarm/api' typecheck \
+ && bun run --filter '@prswarm/web' build
 
 FROM oven/bun:1-slim AS runtime
 WORKDIR /app
@@ -57,7 +57,7 @@ ENV PORT=3000
 ENV DATABASE_PATH=/app/data/app.db
 # If ENCRYPTION_KEY isn't passed in, secrets.ts falls back to a generated key
 # persisted under defaultDataDir() (apps/api/src/paths.ts), which on Linux
-# means $XDG_DATA_HOME/prdispatch. Without this, that lands in
+# means $XDG_DATA_HOME/prswarm. Without this, that lands in
 # the container's ephemeral filesystem (root's default ~/.local/share) and
 # is lost on container replacement — the volume only covers DATABASE_PATH's
 # directory. Pointing XDG_DATA_HOME at the same mounted volume keeps a

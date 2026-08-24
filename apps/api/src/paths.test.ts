@@ -29,21 +29,21 @@ describe("defaultDataDir", () => {
   it("uses XDG_DATA_HOME on linux when set", () => {
     setPlatform("linux");
     process.env.XDG_DATA_HOME = "/custom/data";
-    expect(defaultDataDir()).toBe(path.join("/custom/data", "prdispatch"));
+    expect(defaultDataDir()).toBe(path.join("/custom/data", "prswarm"));
   });
 
   it("falls back to ~/.local/share on linux when XDG_DATA_HOME is unset", () => {
     setPlatform("linux");
     delete process.env.XDG_DATA_HOME;
     expect(defaultDataDir()).toBe(
-      path.join(os.homedir(), ".local", "share", "prdispatch")
+      path.join(os.homedir(), ".local", "share", "prswarm")
     );
   });
 
   it("uses Library/Application Support on macOS", () => {
     setPlatform("darwin");
     expect(defaultDataDir()).toBe(
-      path.join(os.homedir(), "Library", "Application Support", "prdispatch")
+      path.join(os.homedir(), "Library", "Application Support", "prswarm")
     );
   });
 
@@ -51,7 +51,7 @@ describe("defaultDataDir", () => {
     setPlatform("win32");
     process.env.APPDATA = "C:\\Users\\test\\AppData\\Roaming";
     expect(defaultDataDir()).toBe(
-      path.join("C:\\Users\\test\\AppData\\Roaming", "prdispatch")
+      path.join("C:\\Users\\test\\AppData\\Roaming", "prswarm")
     );
   });
 
@@ -59,7 +59,7 @@ describe("defaultDataDir", () => {
     setPlatform("win32");
     delete process.env.APPDATA;
     expect(defaultDataDir()).toBe(
-      path.join(os.homedir(), "AppData", "Roaming", "prdispatch")
+      path.join(os.homedir(), "AppData", "Roaming", "prswarm")
     );
   });
 });

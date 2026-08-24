@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { Connection, JobView, RetryJobRequest } from "@prdispatch/shared-types";
+import type { Connection, JobView, RetryJobRequest } from "@prswarm/shared-types";
 import { apiGet, apiGetOrNull, apiPost } from "../api/client";
 import {
   deriveDiffStatus,
