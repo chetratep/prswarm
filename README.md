@@ -1,14 +1,49 @@
 # PRSwarm
 
-Push a file change — or a set of file changes — across a chosen set of GitHub orgs/repos, with a reviewed diff per file per repo before anything writes. Self-hosted, single-user, MIT licensed.
+Push a file change — or a set of file changes — across a chosen set of
+GitHub orgs/repos, with a reviewed diff per file per repo before anything
+writes. Self-hosted, open source, MIT licensed.
 
-Full design spec: https://claude.ai/code/artifact/89d010c4-46f9-4343-b51d-b15f9f57a494
+**[Documentation](https://chetratep.github.io/prswarm/)** · [Releases](https://github.com/chetratep/prswarm/releases) · [`CLAUDE.md`](./CLAUDE.md) (architecture reference & working conventions)
 
-See [`CLAUDE.md`](./CLAUDE.md) for the condensed architecture reference and working conventions.
+## Install
+
+**Linux / macOS:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chetratep/prswarm/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/chetratep/prswarm/main/install.ps1 | iex
+```
+
+Both fetch the latest [release](https://github.com/chetratep/prswarm/releases)
+for your platform (Linux/macOS/Windows, x64/arm64) and verify it against
+the release's checksums. No config file is required to run it afterward —
+see the [Installation docs](https://chetratep.github.io/prswarm/installation)
+for Docker and from-source options.
 
 ## Status
 
-Phase 1 (MVP) and Phase 2 complete — the full workflow (Connect → Select → Define → Preview → Confirm → Execute → Results) works end to end, with GitHub App auth, filtered targeting, async execution with live progress, retry-failed-only, per-repo template variables, multi-file changesets, and Slack notifications. See `CLAUDE.md` for details and what's left (Phase 3: scheduled runs).
+Full workflow (Connect → Select → Define → Preview → Confirm → Execute →
+Results) end to end, with:
+
+- PAT and GitHub App auth (including GitHub Enterprise Server hosts)
+- Multi-user accounts with admin/member roles, or single-instance login,
+  or no login at all — your choice
+- Filtered targeting, select-all-in-org, cross-org batches
+- Async execution with live per-repo progress over SSE, retry-failed-only
+- Multi-file changesets in one atomic commit, per-repo template variables
+- Slack notifications
+- A standalone single-file binary for Linux/macOS/Windows with an
+  interactive CLI (port wizard, daemon mode) — no separate runtime or
+  config required
+- Docker image (single container, no external database)
+
+See [`CLAUDE.md`](./CLAUDE.md) for the detailed history and what's next.
 
 ## Layout
 
@@ -16,20 +51,27 @@ Phase 1 (MVP) and Phase 2 complete — the full workflow (Connect → Select →
 apps/web              React frontend
 apps/api              Fastify backend, GitHub integration, job engine
 packages/shared-types Types shared between web and api
+scripts/               bun run compile — standalone-binary build pipeline
+website/                Documentation site (Docusaurus)
 ```
 
-## Getting started
+## Running from source
 
-Requires [Bun](https://bun.sh) >= 1.3.14 (`curl -fsSL https://bun.sh/install | bash` on macOS/Linux).
+Requires [Bun](https://bun.sh) ≥ 1.3.14.
 
 ```bash
 bun install
 cp .env.example .env
-# Optional — ENCRYPTION_KEY now auto-generates on first run if left unset.
 bun run dev
 ```
 
-Web dev server: http://localhost:5173 (proxies `/api` to the backend on port 3000).
+Web dev server: http://localhost:5173 (proxies `/api` to the backend).
+
+To build your own standalone binary:
+
+```bash
+bun run compile
+```
 
 ## Running with Docker
 
@@ -37,13 +79,18 @@ Single container — no separate database or cache service to run.
 
 ```bash
 docker build -t prswarm .
-docker run -p 3000:3000 \
-  -e ENCRYPTION_KEY=<generate one, see .env.example> \
-  -v prswarm-data:/app/data \
-  prswarm
+docker run -p 3000:3000 -v prswarm-data:/app/data prswarm
 ```
 
-The app (frontend + API) is served entirely from port 3000 — there's no separate Vite dev server in this mode.
+The app (frontend + API) is served entirely from port 3000.
+
+## Security & privacy
+
+Self-hosted with no hosted/managed edition — nothing you connect ever
+leaves your own instance. Stored credentials (PAT or GitHub App private
+key) are AES-256-GCM encrypted at rest. See the
+[Security & Privacy docs](https://chetratep.github.io/prswarm/security-and-privacy)
+for the full picture.
 
 ## License
 

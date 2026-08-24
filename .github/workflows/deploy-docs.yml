@@ -1,0 +1,63 @@
+name: Deploy Docs
+
+# Builds website/ (Docusaurus) and publishes it to GitHub Pages whenever
+# main changes under website/, or manually. Requires GitHub Pages enabled
+# for this repo with Source set to "GitHub Actions" (Settings > Pages) —
+# on a private repo that needs GitHub Pro/Team/Enterprise, or the repo
+# being public. This workflow doesn't flip either of those itself.
+#
+# Same hardening approach as release.yml: every action pinned to a commit
+# SHA, least-privilege permissions (pages: write and id-token: write are
+# only what actions/deploy-pages actually requires, and only the deploy
+# job gets them), persist-credentials: false on checkout.
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/deploy-docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install and build
+        working-directory: website
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

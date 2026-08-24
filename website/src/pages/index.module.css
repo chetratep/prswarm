@@ -1,0 +1,75 @@
+/**
+ * CSS files with the .module.css suffix will be treated as CSS modules
+ * and scoped locally.
+ */
+
+.heroBanner {
+  padding: 5rem 0 4rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--ifm-color-primary-lightest) 0%, var(--ifm-background-color) 100%);
+}
+
+[data-theme='dark'] .heroBanner {
+  background: linear-gradient(180deg, rgba(9, 105, 218, 0.16) 0%, var(--ifm-background-color) 100%);
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 3rem 1.5rem 2.5rem;
+  }
+}
+
+.heroLogo {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 8px 24px rgba(9, 105, 218, 0.25);
+}
+
+.heroTitle {
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.75rem;
+}
+
+.heroSubtitle {
+  font-size: 1.25rem;
+  color: var(--ifm-color-emphasis-700);
+  max-width: 640px;
+  margin: 0 auto 2rem;
+  line-height: 1.5;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.heroCode {
+  display: inline-block;
+  margin: 2rem auto 0;
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  background: var(--ifm-color-emphasis-0);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  font-size: 0.85rem;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+[data-theme='dark'] .heroCode {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.heroCode code {
+  background: none;
+  border: none;
+  padding: 0;
+}

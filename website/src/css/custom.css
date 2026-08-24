@@ -1,0 +1,33 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ *
+ * Brand color matches the app itself — #0969da is the same
+ * --color-primary used in apps/web/src/index.css, and the same fill on
+ * the favicon/header logo badge (apps/web/public/favicon.svg) — so the
+ * docs site and the app read as one thing, not two.
+ */
+:root {
+  --ifm-color-primary: #0969da;
+  --ifm-color-primary-dark: #085ec4;
+  --ifm-color-primary-darker: #0758b9;
+  --ifm-color-primary-darkest: #064a99;
+  --ifm-color-primary-light: #1f79e0;
+  --ifm-color-primary-lighter: #3286e3;
+  --ifm-color-primary-lightest: #ddeeff;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* GitHub's own dark-mode link blue — lighter for contrast against a dark background. */
+[data-theme='dark'] {
+  --ifm-color-primary: #58a6ff;
+  --ifm-color-primary-dark: #3f97ff;
+  --ifm-color-primary-darker: #2f8eff;
+  --ifm-color-primary-darkest: #0b74e8;
+  --ifm-color-primary-light: #71b5ff;
+  --ifm-color-primary-lighter: #80bcff;
+  --ifm-color-primary-lightest: #a9d1ff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
