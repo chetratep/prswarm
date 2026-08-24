@@ -335,7 +335,7 @@ export function ConnectPage() {
               <span>Private key (.pem)</span>
               <Textarea
                 name="privateKeyPem"
-                className="font-mono text-sm"
+                className="font-mono text-sm field-sizing-fixed resize-y overflow-y-auto"
                 rows={8}
                 autoComplete="off"
                 value={privateKeyPem}
