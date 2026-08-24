@@ -16,3 +16,7 @@ coverage/
 *.tsbuildinfo
 .serena/
 .claude/worktrees/
+# Internal agent-workflow planning docs (superpowers brainstorming/plan
+# artifacts) — not meant for a public repo; the durable "why" behind
+# shipped work lives in CLAUDE.md and the public docs site instead.
+docs/superpowers/
