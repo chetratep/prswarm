@@ -12,6 +12,7 @@ import { ResultsPage } from "./pages/ResultsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { SelectionProvider } from "./state/SelectionContext";
+import { DefineFormProvider } from "./state/DefineFormContext";
 import { IconHistory, IconUser, LogoMark } from "./components/icons";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -295,54 +296,56 @@ function App() {
 
   return (
     <SelectionProvider>
-      <div className="app-shell">
-        <header className="app-header">
-          <div className="app-header__top">
-            <div className="app-header__brand">
-              <span className="app-header__logo">
-                <LogoMark size={17} />
-              </span>
-              <h1 className="app-header__title">PRSwarm</h1>
+      <DefineFormProvider>
+        <div className="app-shell">
+          <header className="app-header">
+            <div className="app-header__top">
+              <div className="app-header__brand">
+                <span className="app-header__logo">
+                  <LogoMark size={17} />
+                </span>
+                <h1 className="app-header__title">PRSwarm</h1>
+              </div>
+              <div className="app-header__top-actions">
+                <Link to="/history" className="app-header__nav-link">
+                  <IconHistory size={15} />
+                  History
+                </Link>
+                <AdminUsersNavLink />
+                <CurrentUserBadge />
+              </div>
             </div>
-            <div className="app-header__top-actions">
-              <Link to="/history" className="app-header__nav-link">
-                <IconHistory size={15} />
-                History
-              </Link>
-              <AdminUsersNavLink />
-              <CurrentUserBadge />
-            </div>
-          </div>
-          <Stepper />
-        </header>
-        <main className="app-main">
-          <Routes>
-            <Route path="/" element={<Navigate to="/connect" replace />} />
-            <Route path="/connect" element={<ConnectPage />} />
-            <Route path="/select" element={<SelectPage />} />
-            <Route
-              path="/define"
-              element={
-                <Suspense fallback={<p className="page__loading">Loading editor…</p>}>
-                  <DefinePage />
-                </Suspense>
-              }
-            />
-            <Route path="/preview/:jobId" element={<PreviewPage />} />
-            <Route path="/confirm/:jobId" element={<ConfirmPage />} />
-            {/* Execute now has real content: execute is async (returns fast,
-                job flips to RUNNING immediately, writes happen in the
-                background), so this page opens an SSE connection to
-                GET /api/jobs/:id/events and renders live per-repo progress
-                as it streams in. */}
-            <Route path="/execute/:jobId" element={<ExecutePage />} />
-            <Route path="/results/:jobId" element={<ResultsPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/admin/users" element={<AdminUsersPage />} />
-            <Route path="*" element={<Navigate to="/connect" replace />} />
-          </Routes>
-        </main>
-      </div>
+            <Stepper />
+          </header>
+          <main className="app-main">
+            <Routes>
+              <Route path="/" element={<Navigate to="/connect" replace />} />
+              <Route path="/connect" element={<ConnectPage />} />
+              <Route path="/select" element={<SelectPage />} />
+              <Route
+                path="/define"
+                element={
+                  <Suspense fallback={<p className="page__loading">Loading editor…</p>}>
+                    <DefinePage />
+                  </Suspense>
+                }
+              />
+              <Route path="/preview/:jobId" element={<PreviewPage />} />
+              <Route path="/confirm/:jobId" element={<ConfirmPage />} />
+              {/* Execute now has real content: execute is async (returns fast,
+                  job flips to RUNNING immediately, writes happen in the
+                  background), so this page opens an SSE connection to
+                  GET /api/jobs/:id/events and renders live per-repo progress
+                  as it streams in. */}
+              <Route path="/execute/:jobId" element={<ExecutePage />} />
+              <Route path="/results/:jobId" element={<ResultsPage />} />
+              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/admin/users" element={<AdminUsersPage />} />
+              <Route path="*" element={<Navigate to="/connect" replace />} />
+            </Routes>
+          </main>
+        </div>
+      </DefineFormProvider>
     </SelectionProvider>
   );
 }

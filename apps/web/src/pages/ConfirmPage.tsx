@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { ExecuteJobRequest, JobView, RepoRun } from "@prswarm/shared-types";
 import { apiGet, apiPost } from "../api/client";
+import { useSelection } from "../state/SelectionContext";
+import { useDefineForm } from "../state/DefineFormContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +29,8 @@ export function ConfirmPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   const [confirmText, setConfirmText] = useState("");
+  const { setSelectedRepos } = useSelection();
+  const { resetDefineForm } = useDefineForm();
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
@@ -40,6 +44,15 @@ export function ConfirmPage() {
       return apiPost(`/api/jobs/${jobId}/execute`, payload);
     },
     onSuccess: () => {
+      // This is the actual point of no return for the in-progress edit
+      // session — past this, Define/Preview's "go back and tweak" no longer
+      // applies to this job (it's executing), so clear both here rather
+      // than earlier (see DefinePage's onSuccess comment): a *new* run
+      // starting fresh from /select won't carry these targets/content along
+      // as pre-filled, but going back and forth within Define/Preview/
+      // Confirm before this point never loses anything.
+      setSelectedRepos(new Set());
+      resetDefineForm();
       // execute now returns almost immediately with the job flipped to
       // RUNNING — the actual per-repo writes happen in the background, so
       // hand off to the Execute page to watch progress live over SSE
@@ -219,13 +232,18 @@ export function ConfirmPage() {
         </p>
       )}
 
-      <Button
-        type="button"
-        disabled={!canRun || executeMutation.isPending}
-        onClick={() => executeMutation.mutate()}
-      >
-        {executeMutation.isPending ? "Starting run…" : "Confirm & run"}
-      </Button>
+      <div className="flex gap-2">
+        <Button asChild variant="outline">
+          <Link to={`/preview/${jobId}`}>Back to preview</Link>
+        </Button>
+        <Button
+          type="button"
+          disabled={!canRun || executeMutation.isPending}
+          onClick={() => executeMutation.mutate()}
+        >
+          {executeMutation.isPending ? "Starting run…" : "Confirm & run"}
+        </Button>
+      </div>
     </div>
   );
 }

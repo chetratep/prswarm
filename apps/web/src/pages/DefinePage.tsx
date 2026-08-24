@@ -1,9 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import type {
-  BranchStrategy,
-  CommitStrategy,
   CreateChangeSetRequest,
   CreateChangeSetResponse,
   CreateJobRequest,
@@ -13,6 +11,7 @@ import { extractTemplateVariables } from "@prswarm/shared-types";
 import { apiPost } from "../api/client";
 import { FileEntryEditor, type FileEntryValue } from "../components/FileEntryEditor";
 import { useSelection } from "../state/SelectionContext";
+import { LANDING_STRATEGIES, useDefineForm, type Landing } from "../state/DefineFormContext";
 import { IconAlertTriangle, IconPlusCircle } from "../components/icons";
 import { EmptyState } from "../components/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -33,39 +32,28 @@ import {
 // than two independent commitStrategy/branchStrategy dropdowns (see the v2
 // contract comment in shared-types — PULL_REQUEST always implies a new
 // branch, so a free combination of the two enums would let you pick a
-// nonsensical pair).
-type Landing = "DIRECT_DEFAULT" | "NEW_BRANCH" | "PR";
-
-const LANDING_STRATEGIES: Record<
-  Landing,
-  { commitStrategy: CommitStrategy; branchStrategy: BranchStrategy }
-> = {
-  DIRECT_DEFAULT: { commitStrategy: "DIRECT_COMMIT", branchStrategy: "DEFAULT" },
-  NEW_BRANCH: { commitStrategy: "DIRECT_COMMIT", branchStrategy: "NEW_BRANCH" },
-  PR: { commitStrategy: "PULL_REQUEST", branchStrategy: "NEW_BRANCH" },
-};
-
-function emptyFile(): FileEntryValue {
-  return { filePath: "", mode: "UPSERT", content: "" };
-}
+// nonsensical pair). Landing / LANDING_STRATEGIES live in DefineFormContext
+// now, alongside the rest of this form's state.
 
 export function DefinePage() {
   const navigate = useNavigate();
-  const { selectedRepos, setSelectedRepos } = useSelection();
-
-  const [name, setName] = useState("");
-  const [files, setFiles] = useState<FileEntryValue[]>([emptyFile()]);
-  const [commitMessage, setCommitMessage] = useState("");
-  // Deliberately no default — direct-commit and PR are equal first-class
-  // choices per CLAUDE.md, so this must never be pre-selected.
-  const [landing, setLanding] = useState<Landing | null>(null);
-  const [prTitle, setPrTitle] = useState("");
-  const [prBody, setPrBody] = useState("");
-  // Per-repo values for {{variable}} placeholders found across every
-  // file's content, keyed by repoFullName then variable name. Recomputed
-  // from `files` on every render (cheap regex scan) rather than memoized,
-  // so the grid always matches exactly what's currently typed.
-  const [templateValues, setTemplateValues] = useState<Record<string, Record<string, string>>>({});
+  const { selectedRepos } = useSelection();
+  const {
+    name,
+    setName,
+    files,
+    setFiles,
+    commitMessage,
+    setCommitMessage,
+    landing,
+    setLanding,
+    prTitle,
+    setPrTitle,
+    prBody,
+    setPrBody,
+    templateValues,
+    setTemplateValues,
+  } = useDefineForm();
 
   function setTemplateValue(repoFullName: string, varName: string, value: string) {
     setTemplateValues((prev) => ({
@@ -79,7 +67,7 @@ export function DefinePage() {
   }
 
   function addFile() {
-    setFiles((prev) => [...prev, emptyFile()]);
+    setFiles((prev) => [...prev, { filePath: "", mode: "UPSERT", content: "" }]);
   }
 
   function removeFile(index: number) {
@@ -136,13 +124,12 @@ export function DefinePage() {
       return jobRes;
     },
     onSuccess: (jobView) => {
-      // This selection has now been spent into a real job — SelectionContext
-      // lives above the router (App.tsx) so it otherwise survives
-      // navigating all the way to Results and back. Without clearing it
-      // here, starting a *new* run by going back to /select would silently
-      // carry the previous run's repos along as pre-checked, spanning
-      // whatever orgs that old run happened to target.
-      setSelectedRepos(new Set());
+      // selectedRepos and this form's own state deliberately survive this
+      // navigation (both live in context above the router — see
+      // SelectionContext and DefineFormContext) so Preview's "back to edit"
+      // button can return here with everything still filled in. They're
+      // only cleared once a job actually starts running (ConfirmPage), the
+      // point past which "go back and tweak" no longer makes sense.
       navigate(`/preview/${jobView.job.id}`);
     },
   });

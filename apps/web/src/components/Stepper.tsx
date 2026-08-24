@@ -1,5 +1,9 @@
 import { Fragment, type ComponentType, type SVGProps } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import type { JobView } from "@prswarm/shared-types";
+import { apiGet } from "../api/client";
+import { isTerminalJobStatus } from "../lib/repoRunStatus";
 import {
   IconEye,
   IconFlag,
@@ -30,6 +34,13 @@ export interface StepDef {
    * without a selection), which is exactly the "steps look done but click
    * somewhere weird" bug this exists to fix. */
   sessionDependent?: boolean;
+  /** Execute and Results aren't just "does a job exist" (needsJobId) — a
+   * freshly-created job sits at DRAFT/PREVIEWING/READY through the whole
+   * Preview/Confirm loop, and neither step means anything until the job has
+   * actually started running. Without this, both were clickable the moment
+   * you land on Preview, well before "Confirm & run" — a real bug reported
+   * live, not a hypothetical. */
+  requiresStarted?: boolean;
 }
 
 export const STEPS: StepDef[] = [
@@ -38,8 +49,8 @@ export const STEPS: StepDef[] = [
   { path: "/define", label: "Define", icon: IconPencil, sessionDependent: true },
   { path: "/preview", label: "Preview", icon: IconEye, needsJobId: true },
   { path: "/confirm", label: "Confirm", icon: IconShieldCheck, needsJobId: true },
-  { path: "/execute", label: "Execute", icon: IconPlay, needsJobId: true },
-  { path: "/results", label: "Results", icon: IconFlag, needsJobId: true },
+  { path: "/execute", label: "Execute", icon: IconPlay, needsJobId: true, requiresStarted: true },
+  { path: "/results", label: "Results", icon: IconFlag, needsJobId: true, requiresStarted: true },
 ];
 
 const JOB_SCOPED_PATH = /^\/(preview|confirm|execute|results)\/([^/]+)/;
@@ -64,6 +75,18 @@ export function Stepper() {
   const jobMatch = location.pathname.match(JOB_SCOPED_PATH);
   const currentJobId = jobMatch ? jobMatch[2] : null;
 
+  // Same queryKey every job-scoped page already fetches with (Preview,
+  // Confirm, Execute, Results) — TanStack Query dedupes/shares the cache
+  // rather than firing a second real request whenever this and the current
+  // page both want the same job.
+  const jobQuery = useQuery({
+    queryKey: ["job", currentJobId],
+    queryFn: () => apiGet<JobView>(`/api/jobs/${currentJobId}`),
+    enabled: !!currentJobId,
+  });
+  const jobStatus = jobQuery.data?.job.status;
+  const hasJobStarted = jobStatus !== undefined && (jobStatus === "RUNNING" || isTerminalJobStatus(jobStatus));
+
   const currentIndex = STEPS.findIndex((step) =>
     step.needsJobId
       ? location.pathname.startsWith(step.path + "/")
@@ -79,7 +102,12 @@ export function Stepper() {
             currentIndex >= 0 &&
             index < currentIndex &&
             (!step.sessionDependent || hasActiveSelection);
-          const isDisabled = Boolean(step.needsJobId) && !currentJobId;
+          const missingJob = Boolean(step.needsJobId) && !currentJobId;
+          const notStartedYet = Boolean(step.requiresStarted) && !missingJob && !hasJobStarted;
+          const isDisabled = missingJob || notStartedYet;
+          const disabledTitle = missingJob
+            ? "Create a job first — start from Define"
+            : "Confirm and run the job first";
           const target = step.needsJobId ? `${step.path}/${currentJobId}` : step.path;
           // Purely decorative progress-line fill — how far you've navigated,
           // not whether a session-dependent step (Select/Define) actually
@@ -126,10 +154,7 @@ export function Stepper() {
               )}
               <li className="group flex shrink-0">
                 {isDisabled ? (
-                  <span
-                    className="cursor-not-allowed"
-                    title="Create a job first — start from Define"
-                  >
+                  <span className="cursor-not-allowed" title={disabledTitle}>
                     {node}
                   </span>
                 ) : (

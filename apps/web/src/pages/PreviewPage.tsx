@@ -210,9 +210,14 @@ export function PreviewPage() {
           </div>
         ))}
 
-      <Button asChild>
-        <Link to={`/confirm/${jobId}`}>Continue to confirm</Link>
-      </Button>
+      <div className="flex gap-2">
+        <Button asChild variant="outline">
+          <Link to="/define">Back to edit</Link>
+        </Button>
+        <Button asChild>
+          <Link to={`/confirm/${jobId}`}>Continue to confirm</Link>
+        </Button>
+      </div>
     </div>
   );
 }
