@@ -1,11 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { openDatabase } from "./db.js";
+import { __resetKeyCacheForTests } from "./crypto.js";
 
 let dbPath: string;
 let db: ReturnType<typeof openDatabase> | undefined;
+
+beforeEach(() => {
+  process.env.ENCRYPTION_KEY = Buffer.alloc(32, 4).toString("hex");
+  __resetKeyCacheForTests();
+});
 
 afterEach(() => {
   if (db) {
@@ -19,6 +25,8 @@ afterEach(() => {
       // File may still be locked by Bun's sqlite; ignore cleanup errors
     }
   }
+  delete process.env.ENCRYPTION_KEY;
+  __resetKeyCacheForTests();
 });
 
 describe("openDatabase transactions", () => {
@@ -150,5 +158,34 @@ describe("openDatabase schema", () => {
       user_id: string | null;
     };
     expect(row.user_id).toBe("local");
+  });
+});
+
+describe("openDatabase encryption at rest", () => {
+  it("writes an encrypted file to disk, not plaintext SQLite, after opening", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    const raw = fs.readFileSync(dbPath);
+    expect(raw.subarray(0, 16).toString("utf8")).not.toBe("SQLite format 3\0");
+  });
+
+  it("persists writes across a close and reopen", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+    db.prepare(
+      `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("id-flush-1", "PAT", "octocat", null, null, "enc", "2026-01-01T00:00:00.000Z");
+
+    // Force the debounced auto-flush to fire before reopening, rather than
+    // waiting on the real timer in a test.
+    db.close();
+
+    const reopened = openDatabase(dbPath);
+    const row = reopened.prepare("SELECT * FROM connections WHERE id = ?").get("id-flush-1");
+    expect(row).toBeTruthy();
+    reopened.close();
+    db = undefined;
   });
 });

@@ -1,6 +1,6 @@
-// SQLite setup: opens the database file (creating its parent directory if
-// needed) and runs idempotent CREATE TABLE IF NOT EXISTS migrations for the
-// full schema.
+// SQLite setup: loads the database (as an in-memory bun:sqlite instance,
+// decrypted from an encrypted on-disk blob — see encryptedStore.ts) and runs
+// idempotent CREATE TABLE IF NOT EXISTS migrations for the full schema.
 //
 // Uses bun:sqlite rather than better-sqlite3: this repo's whole stack pitch
 // is "no native toolchain to stand up" (see CLAUDE.md), and better-sqlite3
@@ -9,23 +9,112 @@
 // there's nothing to compile at all — and unlike node:sqlite (used before
 // this migration), it has a native `.transaction()` method, so callers no
 // longer need a hand-rolled BEGIN/COMMIT/ROLLBACK wrapper.
+//
+// Encryption at rest: the working copy of the database lives entirely in
+// memory (bun:sqlite `:memory:`/deserialized, never opened directly against
+// `databasePath`) and only ever reaches disk as an AES-256-GCM-encrypted
+// blob, written atomically by encryptedStore.ts's flush(). Writes are
+// tracked here via a monkey-patch of the returned Database instance's own
+// prepare/transaction/exec/close methods, and flushed on a short debounce
+// (see wireAutoFlush below) rather than after every single write.
 import { Database } from "bun:sqlite";
-import fs from "node:fs";
-import path from "node:path";
+import { cleanupStaleTempFiles, flush, loadEncryptedDatabase } from "./encryptedStore.js";
 
 export type AppDatabase = Database;
 
-export function openDatabase(databasePath: string): AppDatabase {
-  const dir = path.dirname(databasePath);
-  fs.mkdirSync(dir, { recursive: true });
+const AUTO_FLUSH_DEBOUNCE_MS = 500;
+const AUTO_FLUSH_MAX_DELAY_MS = 5000;
 
-  const db = new Database(databasePath);
-  db.exec("PRAGMA journal_mode = WAL;");
+export function openDatabase(databasePath: string): AppDatabase {
+  cleanupStaleTempFiles(databasePath);
+
+  const db = loadEncryptedDatabase(databasePath);
   db.exec("PRAGMA foreign_keys = ON;");
+  // No WAL pragma: nothing writes SQLite's native on-disk format directly
+  // any more — the working copy lives in memory and reaches disk only via
+  // flush()'s atomic encrypted write, so WAL's own on-disk journal has
+  // nothing to do here (and would have been written in plaintext).
 
   runMigrations(db);
 
+  // Ensures a valid encrypted file exists immediately after a fresh install
+  // or a legacy-plaintext migration, rather than waiting for the first
+  // real write's debounced flush.
+  flush(db, databasePath);
+
+  wireAutoFlush(db, databasePath);
+
   return db;
+}
+
+function wireAutoFlush(db: AppDatabase, databasePath: string): void {
+  let dirty = false;
+  let firstDirtyAt: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const flushNow = (): void => {
+    if (!dirty) return;
+    flush(db, databasePath);
+    dirty = false;
+    firstDirtyAt = undefined;
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+
+  const onWrite = (): void => {
+    dirty = true;
+    if (firstDirtyAt === undefined) firstDirtyAt = Date.now();
+    if (timer) clearTimeout(timer);
+
+    const elapsed = Date.now() - firstDirtyAt;
+    const delay = Math.min(AUTO_FLUSH_DEBOUNCE_MS, Math.max(0, AUTO_FLUSH_MAX_DELAY_MS - elapsed));
+    timer = setTimeout(flushNow, delay);
+  };
+
+  // Flush on the way out too, whether close() is called directly (tests,
+  // the CLI's own explicit paths added in Task 6) or the process exits —
+  // this is a best-effort belt-and-braces flush; Task 6 adds the real
+  // guaranteed shutdown flush via SIGINT/SIGTERM and the CLI's own flows.
+  const originalClose = db.close.bind(db);
+  db.close = ((...args: Parameters<typeof db.close>) => {
+    flushNow();
+    return originalClose(...args);
+  }) as typeof db.close;
+
+  interceptWrites(db, onWrite);
+}
+
+function interceptWrites(db: AppDatabase, onWrite: () => void): void {
+  const originalPrepare = db.prepare.bind(db);
+  db.prepare = ((sql: string, ...rest: unknown[]) => {
+    const stmt = (originalPrepare as (...a: unknown[]) => ReturnType<typeof db.prepare>)(sql, ...rest);
+    const originalRun = stmt.run.bind(stmt);
+    stmt.run = ((...runArgs: unknown[]) => {
+      const result = (originalRun as (...a: unknown[]) => unknown)(...runArgs);
+      onWrite();
+      return result;
+    }) as typeof stmt.run;
+    return stmt;
+  }) as typeof db.prepare;
+
+  const originalTransaction = db.transaction.bind(db);
+  db.transaction = ((fn: (...args: unknown[]) => unknown) => {
+    const wrapped = originalTransaction(fn);
+    return ((...args: unknown[]) => {
+      const result = (wrapped as (...a: unknown[]) => unknown)(...args);
+      onWrite();
+      return result;
+    }) as typeof wrapped;
+  }) as typeof db.transaction;
+
+  const originalExec = db.exec.bind(db);
+  db.exec = ((sql: string, ...rest: unknown[]) => {
+    const result = (originalExec as (...a: unknown[]) => unknown)(sql, ...rest);
+    onWrite();
+    return result;
+  }) as typeof db.exec;
 }
 
 function runMigrations(db: AppDatabase): void {
