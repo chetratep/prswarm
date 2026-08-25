@@ -1,0 +1,9 @@
+# Security posture
+
+This tool stores and uses GitHub PATs and GitHub App private keys on behalf of real accounts across potentially hundreds of repos. Applies everywhere in this repo, not just the GitHub integration layer:
+
+- **Never log or echo credential material** — PATs, GitHub App `.pem` contents, the `ENCRYPTION_KEY`, session secrets. Not to console, not to error messages, not to test fixtures committed to the repo.
+- **Be conservative about adding dependencies.** Every new dependency is new supply-chain surface for a tool that holds live write credentials to a user's repos.
+- **Secrets are envelope-encrypted at rest** (`apps/api/src/crypto.ts` / `secrets.ts`), decrypted only inside the GitHub integration layer, and never sent to the browser after initial entry. Don't add a code path that returns a decrypted secret (or the raw ciphertext) to the frontend.
+- **`fetch-content` (`apps/api/src/routes/fetchContent.ts`) is a deliberate SSRF-guarded boundary**: server-side fetch of an arbitrary user-supplied URL is fetched http(s)-only, DNS-resolved and rejected if the resolved address is loopback/link-local/private-range (covers `169.254.169.254` cloud metadata), with the guard **re-checked on every redirect hop** — not just the initial URL, since a public URL that 302s to an internal one is the bypass a naive check misses — capped at 5 redirects, 5MB response size, 10s timeout. Any new server-side "fetch a user-supplied URL" endpoint needs the same treatment, not a lighter version of it.
+- **Direct-to-default-branch writes get extra guardrails deliberately**: branch-protection is checked at preview time (not discovered only at execute time), the confirmation gate is never skippable for this path regardless of batch size, and every such write is tagged `direct_to_default` in the audit trail. Don't relax any of these three independently — they're a set.
