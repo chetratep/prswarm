@@ -61,9 +61,27 @@ docker run -p 3000:3000 \
   prswarm
 ```
 
-The whole app (frontend + API) is served from port 3000. An
-`ENCRYPTION_KEY` is auto-generated and persisted on the mounted volume on
-first run if you don't set one explicitly — see [Configuration](./configuration).
+The whole app (frontend + API) is served from port 3000.
+
+The database on that volume is encrypted at rest, and a container has no
+OS keychain to hold the key — so if you don't set `ENCRYPTION_KEY`, one is
+generated on first run and written to the same volume as the database it
+protects, which offers no real protection from anyone who can read the
+volume. Supply it yourself instead:
+
+```bash
+docker run -p 3000:3000 \
+  -v prswarm-data:/app/data \
+  -e ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  prswarm
+```
+
+Keep that value somewhere durable and pass the *same* one on every run —
+a different key cannot decrypt the existing database, and there is no
+recovery path. In production, use a Docker/Kubernetes secret or your cloud
+secrets manager rather than an inline `-e`. See
+[Configuration](./configuration) and
+[Security & Privacy](./security-and-privacy).
 
 ## Option 4 — From source
 

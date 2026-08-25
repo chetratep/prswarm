@@ -2,6 +2,12 @@
 // only as an AES-256-GCM-encrypted blob, written atomically (temp file +
 // fsync + rename). No plaintext SQLite bytes are ever written to disk by
 // this module.
+//
+// Assumes a single process owns `databasePath` — flush() replaces the whole
+// file and cleanupStaleTempFiles() sweeps every temp file beside it, neither
+// of which is safe against a concurrent sibling instance. See the
+// SINGLE INSTANCE PER DATABASE PATH note at the top of db.ts for why that
+// constraint is the app's architecture rather than an oversight here.
 import { Database } from "bun:sqlite";
 import fs from "node:fs";
 import path from "node:path";

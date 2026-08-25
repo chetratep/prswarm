@@ -17,6 +17,25 @@
 // tracked here via a monkey-patch of the returned Database instance's own
 // prepare/transaction/exec/close methods, and flushed on a short debounce
 // (see wireAutoFlush below) rather than after every single write.
+//
+// SINGLE INSTANCE PER DATABASE PATH. This is a hard constraint, and one that
+// changed with encryption at rest: two processes pointed at the same
+// DATABASE_PATH used to be arbitrated by SQLite's own file locking, and now
+// are not. Each process loads its own private in-memory copy at startup and
+// each flush replaces the entire file — so the second process to flush
+// silently discards everything the first one wrote, whole tables included,
+// not just conflicting rows. cleanupStaleTempFiles() below compounds it: it
+// deletes every `.<db>.tmp-*` file in the directory at startup, which would
+// include a live sibling's in-flight temp file.
+//
+// This matches the architecture the app already had — one Bun process, one
+// openDatabase() call at boot, an in-process job queue with no cross-process
+// coordination (see CLAUDE.md's Tech stack notes) — so it is a documented
+// constraint rather than a bug to fix here. Running two instances against one
+// database file was never supported; it just used to fail more visibly.
+// Anything that changes that (a supervisor running replicas, a shared volume
+// mounted into two containers) needs a real coordination mechanism designed
+// for it, not a tweak to the flush path.
 import { Database } from "bun:sqlite";
 import { assertEncryptionKeyAvailableFor } from "./crypto.js";
 import { classifyDatabaseFile } from "./databaseFormat.js";
