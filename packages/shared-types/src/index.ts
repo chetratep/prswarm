@@ -35,6 +35,20 @@ export interface ChangeOwnPasswordRequest {
   newPassword: string;
 }
 
+export interface SettingsResponse {
+  slackWebhookUrl: string | null;
+  /** "env" when SLACK_WEBHOOK_URL is set on the server and therefore takes
+   * precedence — the stored value below (if any) is inert until that env
+   * var is unset, and the UI should disable editing rather than let you
+   * change something that won't take effect. */
+  slackWebhookUrlSource: "env" | "db" | null;
+}
+
+export interface UpdateSettingsRequest {
+  /** null clears it. */
+  slackWebhookUrl: string | null;
+}
+
 export type WriteMode = "CREATE_ONLY" | "OVERWRITE" | "UPSERT";
 export type ContentSource = "STATIC" | "TEMPLATE";
 export type BranchStrategy = "DEFAULT" | "NEW_BRANCH";

@@ -340,4 +340,148 @@ describe("runInteractiveCli", () => {
 
     await expectExit(run, 0);
   });
+
+  it("configuring Slack saves a valid https:// URL", async () => {
+    const { input, output } = makeIo();
+    const listen = vi.fn().mockResolvedValue(fakeApp());
+    const getSlackWebhookStatus = vi.fn().mockReturnValue({ url: null, source: null });
+    const setSlackWebhookUrl = vi.fn();
+    const { exit } = fakeExit();
+
+    const run = start({
+      dataDir: tempDir,
+      db: fakeDb(),
+      listen,
+      input,
+      output,
+      getSlackWebhookStatus,
+      setSlackWebhookUrl,
+      exit,
+    });
+    await type(input, "3000");
+    await type(input, "s");
+    await type(input, "https://hooks.slack.com/services/x");
+    await type(input, "x");
+
+    await expectExit(run, 0);
+    expect(setSlackWebhookUrl).toHaveBeenCalledWith("https://hooks.slack.com/services/x");
+  });
+
+  it("configuring Slack rejects a value that doesn't look like a URL", async () => {
+    const { input, output } = makeIo();
+    const listen = vi.fn().mockResolvedValue(fakeApp());
+    const getSlackWebhookStatus = vi.fn().mockReturnValue({ url: null, source: null });
+    const setSlackWebhookUrl = vi.fn();
+    const { exit } = fakeExit();
+
+    const run = start({
+      dataDir: tempDir,
+      db: fakeDb(),
+      listen,
+      input,
+      output,
+      getSlackWebhookStatus,
+      setSlackWebhookUrl,
+      exit,
+    });
+    await type(input, "3000");
+    await type(input, "s");
+    await type(input, "not-a-url");
+    await type(input, "x");
+
+    await expectExit(run, 0);
+    expect(setSlackWebhookUrl).not.toHaveBeenCalled();
+  });
+
+  it('configuring Slack with "clear" removes the configured URL', async () => {
+    const { input, output } = makeIo();
+    const listen = vi.fn().mockResolvedValue(fakeApp());
+    const getSlackWebhookStatus = vi.fn().mockReturnValue({
+      url: "https://hooks.slack.com/services/existing",
+      source: "db",
+    });
+    const clearSlackWebhookUrl = vi.fn();
+    const { exit } = fakeExit();
+
+    const run = start({
+      dataDir: tempDir,
+      db: fakeDb(),
+      listen,
+      input,
+      output,
+      getSlackWebhookStatus,
+      clearSlackWebhookUrl,
+      exit,
+    });
+    await type(input, "3000");
+    await type(input, "s");
+    await type(input, "clear");
+    await type(input, "x");
+
+    await expectExit(run, 0);
+    expect(clearSlackWebhookUrl).toHaveBeenCalled();
+  });
+
+  it("configuring Slack with a blank answer leaves the existing value unchanged", async () => {
+    const { input, output } = makeIo();
+    const listen = vi.fn().mockResolvedValue(fakeApp());
+    const getSlackWebhookStatus = vi.fn().mockReturnValue({
+      url: "https://hooks.slack.com/services/existing",
+      source: "db",
+    });
+    const setSlackWebhookUrl = vi.fn();
+    const clearSlackWebhookUrl = vi.fn();
+    const { exit } = fakeExit();
+
+    const run = start({
+      dataDir: tempDir,
+      db: fakeDb(),
+      listen,
+      input,
+      output,
+      getSlackWebhookStatus,
+      setSlackWebhookUrl,
+      clearSlackWebhookUrl,
+      exit,
+    });
+    await type(input, "3000");
+    await type(input, "s");
+    await type(input, "");
+    await type(input, "x");
+
+    await expectExit(run, 0);
+    expect(setSlackWebhookUrl).not.toHaveBeenCalled();
+    expect(clearSlackWebhookUrl).not.toHaveBeenCalled();
+  });
+
+  it("when SLACK_WEBHOOK_URL is env-sourced, skips prompting entirely and returns to the menu", async () => {
+    const { input, output } = makeIo();
+    const listen = vi.fn().mockResolvedValue(fakeApp());
+    const getSlackWebhookStatus = vi.fn().mockReturnValue({
+      url: "https://hooks.slack.com/services/from-env",
+      source: "env",
+    });
+    const setSlackWebhookUrl = vi.fn();
+    const { exit } = fakeExit();
+
+    const run = start({
+      dataDir: tempDir,
+      db: fakeDb(),
+      listen,
+      input,
+      output,
+      getSlackWebhookStatus,
+      setSlackWebhookUrl,
+      exit,
+    });
+    await type(input, "3000");
+    await type(input, "s");
+    // No further input needed — env-sourced short-circuits straight back to
+    // the menu without a prompt. If it *did* prompt, this "x" would answer
+    // that prompt instead of the menu and the test would hang/mismatch.
+    await type(input, "x");
+
+    await expectExit(run, 0);
+    expect(setSlackWebhookUrl).not.toHaveBeenCalled();
+  });
 });

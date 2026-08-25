@@ -24,6 +24,7 @@ import { registerFetchContentRoutes } from "./routes/fetchContent.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerJobsRoutes } from "./routes/jobs.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerUsersRoutes } from "./routes/users.js";
 import { runInteractiveCli } from "./cli/interactiveCli.js";
 import { HELP_TEXT, parseCliArgs } from "./cli/args.js";
@@ -76,6 +77,7 @@ async function buildAndListen(
       await registerChangesetsRoutes(apiScope, { db });
       await registerJobsRoutes(apiScope, { db });
       await registerUsersRoutes(apiScope, { db });
+      await registerSettingsRoutes(apiScope, { db });
       await registerFetchContentRoutes(apiScope, { db });
     },
     { prefix: "/api" }

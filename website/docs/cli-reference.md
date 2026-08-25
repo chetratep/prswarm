@@ -27,6 +27,7 @@ Press Enter to accept the default (remembered from your last run, or
 ────────────────────────────────────────────
   o  Open in browser
   p  Change port
+  s  Configure Slack notifications
   c  Clear app data
   x  Exit
 ────────────────────────────────────────────
@@ -41,9 +42,16 @@ a raw kill).
 - **Change port** hands off to a freshly spawned copy of the same binary
   on the new port, rather than rebuilding the server in-process — the
   same trick file-watchers use on a restart.
+- **Configure Slack notifications** prompts for a webhook URL (or type
+  `clear` to remove it, or leave it blank to keep the current value) —
+  stored in the database, so it's remembered across restarts with no
+  `.env` file involved. Same setting the web UI's Settings page edits;
+  either one reflects what the other set. If `SLACK_WEBHOOK_URL` is set
+  as an environment variable, this tells you that instead of prompting,
+  since the env var always takes precedence.
 - **Clear app data** deletes the database, encryption key, and saved
-  preferences. Requires typing `DELETE` to confirm; there's no
-  undo.
+  preferences (including anything configured via the option above).
+  Requires typing `DELETE` to confirm; there's no undo.
 - **Exit** shuts down cleanly.
 
 Colors respect `NO_COLOR` and disable automatically when output isn't a

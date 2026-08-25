@@ -9,6 +9,12 @@ import { createInterface } from "node:readline/promises";
 import fs from "node:fs";
 import type { FastifyInstance } from "fastify";
 import type { AppDatabase } from "../db.js";
+import { deleteSettingValue, setSettingValue } from "../repositories/settingsRepository.js";
+import {
+  resolveSlackWebhookUrl,
+  SLACK_WEBHOOK_URL_SETTING_KEY,
+  type ResolvedSlackWebhookUrl,
+} from "../notifications/slack.js";
 import { readLastUsedPort, saveLastUsedPort } from "./cliConfig.js";
 import { openInBrowser } from "./openBrowser.js";
 import { isValidPort } from "./port.js";
@@ -18,6 +24,7 @@ import { selectMenuOption, type MenuOption } from "./menuSelect.js";
 const MENU_OPTIONS: MenuOption[] = [
   { key: "o", label: "Open in browser", value: "open" },
   { key: "p", label: "Change port", value: "port" },
+  { key: "s", label: "Configure Slack notifications", value: "slack" },
   { key: "c", label: "Clear app data", value: "clear" },
   { key: "x", label: "Exit", value: "exit", aliases: ["q", "quit"] },
 ];
@@ -47,6 +54,9 @@ interface RunInteractiveCliOptions {
   spawnRestart?: (port: number) => void;
   rmDataDir?: (dir: string) => void;
   exit?: (code: number) => never;
+  getSlackWebhookStatus?: () => ResolvedSlackWebhookUrl;
+  setSlackWebhookUrl?: (url: string) => void;
+  clearSlackWebhookUrl?: () => void;
 }
 
 function isPortInUseError(err: unknown): boolean {
@@ -91,6 +101,9 @@ export async function runInteractiveCli(options: RunInteractiveCliOptions): Prom
     spawnRestart = defaultSpawnRestart,
     rmDataDir = defaultRmDataDir,
     exit = process.exit,
+    getSlackWebhookStatus = () => resolveSlackWebhookUrl(db),
+    setSlackWebhookUrl = (url: string) => setSettingValue(db, SLACK_WEBHOOK_URL_SETTING_KEY, url),
+    clearSlackWebhookUrl = () => deleteSettingValue(db, SLACK_WEBHOOK_URL_SETTING_KEY),
   } = options;
 
   // A fresh readline.Interface per question rather than one held open for
@@ -183,6 +196,35 @@ export async function runInteractiveCli(options: RunInteractiveCliOptions): Prom
       spawnRestart(parsed);
       exit(0);
       return;
+    }
+
+    if (choice === "slack") {
+      const { url: currentUrl, source } = getSlackWebhookStatus();
+      if (source === "env") {
+        console.log(
+          `${color.yellow("⚠")} SLACK_WEBHOOK_URL is set via environment variable and takes precedence — unset it to configure this here.`
+        );
+        continue;
+      }
+      console.log(
+        color.dim(currentUrl ? "Slack notifications are currently configured." : "Slack notifications are not configured.")
+      );
+      const answer = await askQuestion(
+        `${color.cyan(color.bold("?"))} Slack webhook URL ${color.dim('(blank to keep, "clear" to remove)')}: `
+      );
+      const trimmed = answer.trim();
+      if (trimmed === "") {
+        console.log(color.gray("Unchanged."));
+      } else if (trimmed.toLowerCase() === "clear") {
+        clearSlackWebhookUrl();
+        console.log(`${color.green("✓")} Slack notifications disabled.`);
+      } else if (!trimmed.startsWith("https://")) {
+        console.log(`${color.yellow("⚠")} That doesn't look like a URL (expected it to start with https://) — not saved.`);
+      } else {
+        setSlackWebhookUrl(trimmed);
+        console.log(`${color.green("✓")} Slack notifications configured.`);
+      }
+      continue;
     }
 
     if (choice === "clear") {

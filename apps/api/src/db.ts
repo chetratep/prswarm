@@ -30,6 +30,17 @@ export function openDatabase(databasePath: string): AppDatabase {
 
 function runMigrations(db: AppDatabase): void {
   db.exec(`
+    -- Instance-wide, admin-configurable settings (currently just the Slack
+    -- webhook URL — see notifications/slack.ts) that need to live somewhere
+    -- other than an env var, since the standalone binary's whole pitch is
+    -- "no config file required" and an env var means finding the right cwd
+    -- (see docs site's Configuration page). A plain key/value table rather
+    -- than dedicated columns since this is expected to grow.
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS connections (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,

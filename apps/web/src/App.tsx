@@ -11,6 +11,7 @@ import { ExecutePage } from "./pages/ExecutePage";
 import { ResultsPage } from "./pages/ResultsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { SelectionProvider } from "./state/SelectionContext";
 import { DefineFormProvider } from "./state/DefineFormContext";
 import { IconHistory, IconUser, LogoMark } from "./components/icons";
@@ -270,6 +271,29 @@ function AdminUsersNavLink() {
   );
 }
 
+// Settings (currently just Slack notifications) is reachable whenever the
+// API would actually allow it — an admin, or the "local" sentinel role
+// when AUTH_ENABLED is off (see routes/settings.ts) — not just when
+// role === "admin" the way AdminUsersNavLink checks. That check alone
+// would hide this whenever auth is off, since /session returns role: null
+// in that mode (no session concept at all) — but this page is exactly as
+// useful, arguably more so, for someone running solo with no login who
+// still wants Slack notifications configurable from the UI rather than an
+// env var.
+function SettingsNavLink() {
+  const sessionQuery = useSession();
+  const session = sessionQuery.data;
+  const canAccess = session?.authRequired === false || session?.role === "admin";
+  if (!canAccess) {
+    return null;
+  }
+  return (
+    <Link to="/admin/settings" className="app-header__nav-link">
+      Settings
+    </Link>
+  );
+}
+
 function App() {
   const sessionQuery = useSession();
 
@@ -312,6 +336,7 @@ function App() {
                   History
                 </Link>
                 <AdminUsersNavLink />
+                <SettingsNavLink />
                 <CurrentUserBadge />
               </div>
             </div>
@@ -341,6 +366,7 @@ function App() {
               <Route path="/results/:jobId" element={<ResultsPage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
+              <Route path="/admin/settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/connect" replace />} />
             </Routes>
           </main>

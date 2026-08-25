@@ -14,7 +14,7 @@ import type { AppDatabase } from "./db.js";
 import { loadOctokitForCurrentConnection } from "./github/loadConnection.js";
 import { executeRepoRun } from "./github/repoExecute.js";
 import { publishJobEvent } from "./jobEventBus.js";
-import { notifySlack } from "./notifications/slack.js";
+import { notifySlack, resolveSlackWebhookUrl } from "./notifications/slack.js";
 import { getChangeSetById, getChangeSetFilesByChangeSetId } from "./repositories/changesetsRepository.js";
 import { getJobById, updateJob } from "./repositories/jobsRepository.js";
 import { getRepoRunFilesByRepoRunId } from "./repositories/repoRunFilesRepository.js";
@@ -46,7 +46,10 @@ function markJobFailed(db: AppDatabase, jobId: string): void {
       completedAt: new Date().toISOString(),
     });
     publishJobEvent(jobId, { type: "job_update", job: failedJob });
-    void notifySlack(`Job ${jobId} failed unexpectedly (not a per-repo failure — see server logs).`);
+    void notifySlack(
+      resolveSlackWebhookUrl(db).url,
+      `Job ${jobId} failed unexpectedly (not a per-repo failure — see server logs).`
+    );
   } catch (persistErr) {
     console.error(`jobQueue: failed to persist FAILED status for job ${jobId}:`, persistErr);
   }
@@ -112,12 +115,13 @@ export async function runJobExecution(
     });
     publishJobEvent(jobId, { type: "job_update", job: finalJob });
 
-    // Best-effort — notifySlack no-ops if SLACK_WEBHOOK_URL isn't set, and
+    // Best-effort — notifySlack no-ops if no webhook URL is configured, and
     // never throws, so this can't turn a completed job into a failed one.
     const succeeded = finalRepoRuns.filter((r) => r.status === "SUCCESS").length;
     const skipped = finalRepoRuns.filter((r) => r.status === "SKIPPED").length;
     const failed = finalRepoRuns.filter((r) => r.status === "FAILED").length;
     void notifySlack(
+      resolveSlackWebhookUrl(db).url,
       `*${changeSet.name}* — ${finalStatus} (${succeeded} succeeded, ${skipped} skipped, ${failed} failed)`
     );
   } catch (err) {
