@@ -7,8 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { decryptBuffer, encryptBuffer } from "./crypto.js";
-
-const SQLITE_MAGIC = "SQLite format 3\0";
+import { SQLITE_MAGIC } from "./databaseFormat.js";
 
 function tempFilePathFor(databasePath: string): string {
   const dir = path.dirname(databasePath);

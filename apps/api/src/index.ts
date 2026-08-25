@@ -13,7 +13,7 @@ import fastifyStatic from "@fastify/static";
 import type { AppDatabase } from "./db.js";
 import { bootstrapAuth } from "./auth/bootstrap.js";
 import { registerSession } from "./auth/session.js";
-import { assertEncryptionKeyConfigured } from "./crypto.js";
+import { assertEncryptionKeyAvailableFor, assertEncryptionKeyConfigured } from "./crypto.js";
 import { openDatabase } from "./db.js";
 import { flush } from "./encryptedStore.js";
 import { embeddedAssets } from "./embeddedAssets.generated.js";
@@ -144,14 +144,21 @@ async function main(): Promise<void> {
 
   const authEnabled = process.env.AUTH_ENABLED === "true";
 
+  const databasePath = process.env.DATABASE_PATH
+    ? path.resolve(configBaseDir, process.env.DATABASE_PATH)
+    : path.join(defaultDataDir(), "app.db");
+
+  // Ordered ahead of assertEncryptionKeyConfigured() on purpose: that call
+  // *generates and persists* a key when it can't find one, which would
+  // silently overwrite the keychain entry an existing encrypted database
+  // depends on. This refuses that case up front, and caches the key it does
+  // find so the call below doesn't pay for a second keychain lookup.
+  assertEncryptionKeyAvailableFor(databasePath);
+
   // Resolves the encryption key eagerly (generating and persisting one on first
   // run if none is configured) so a *malformed* key still fails fast at startup
   // rather than the first time a connection is saved.
   assertEncryptionKeyConfigured();
-
-  const databasePath = process.env.DATABASE_PATH
-    ? path.resolve(configBaseDir, process.env.DATABASE_PATH)
-    : path.join(defaultDataDir(), "app.db");
 
   const db = openDatabase(databasePath);
 

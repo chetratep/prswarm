@@ -18,6 +18,7 @@
 // prepare/transaction/exec/close methods, and flushed on a short debounce
 // (see wireAutoFlush below) rather than after every single write.
 import { Database } from "bun:sqlite";
+import { assertEncryptionKeyAvailableFor } from "./crypto.js";
 import { cleanupStaleTempFiles, flush, loadEncryptedDatabase } from "./encryptedStore.js";
 
 export type AppDatabase = Database;
@@ -32,6 +33,14 @@ const AUTO_FLUSH_MAX_DELAY_MS = 5000;
 const AUTO_FLUSH_RETRY_DELAY_MS = 2000;
 
 export function openDatabase(databasePath: string): AppDatabase {
+  // Must come first: everything below eventually resolves the encryption key,
+  // and resolution's last resort is to generate a new one and persist it over
+  // whatever the keychain already held. Against an existing encrypted
+  // database that is unrecoverable data loss, so this refuses outright rather
+  // than letting it happen. index.ts calls this too, ahead of its own
+  // assertEncryptionKeyConfigured(); both calls are cheap and idempotent.
+  assertEncryptionKeyAvailableFor(databasePath);
+
   cleanupStaleTempFiles(databasePath);
 
   const db = loadEncryptedDatabase(databasePath);
