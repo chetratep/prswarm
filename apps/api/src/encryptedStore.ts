@@ -129,7 +129,19 @@ export function flush(db: Database, databasePath: string): void {
   const tmpPath = tempFilePathFor(databasePath);
   const fd = fs.openSync(tmpPath, "w");
   try {
-    fs.writeSync(fd, encrypted);
+    // writeSync can legitimately write fewer bytes than it was given (disk
+    // quota pressure is the classic case). Ignoring that and continuing to
+    // fsync and rename would publish a truncated file over a healthy one —
+    // and truncated ciphertext fails its GCM auth tag, so the next boot finds
+    // an undecryptable database rather than an old one. Throwing here instead
+    // routes it into the caller's retry path (see db.ts's flushNow) and
+    // leaves the existing file untouched.
+    const bytesWritten = fs.writeSync(fd, encrypted);
+    if (bytesWritten !== encrypted.length) {
+      throw new Error(
+        `Short write while flushing the encrypted database: wrote ${bytesWritten} of ${encrypted.length} bytes to ${tmpPath}.`
+      );
+    }
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);

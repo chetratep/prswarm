@@ -42,6 +42,8 @@ public class CredManager {
   public static extern bool CredWrite([In] ref CREDENTIAL credential, uint flags);
   [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
   public static extern bool CredRead(string target, int type, int flags, out IntPtr credentialPtr);
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern bool CredDelete(string target, int type, int flags);
   [DllImport("advapi32.dll")]
   public static extern void CredFree(IntPtr credentialPtr);
 }
@@ -55,6 +57,9 @@ if ($Action -eq "write") {
   $cred.CredentialBlob = $blob; $cred.Persist = 2; $cred.UserName = "prswarm"
   $ok = [CredManager]::CredWrite([ref]$cred, 0)
   [Runtime.InteropServices.Marshal]::FreeHGlobal($blob)
+  if (-not $ok) { exit 1 }
+} elseif ($Action -eq "delete") {
+  $ok = [CredManager]::CredDelete($Target, 1, 0)
   if (-not $ok) { exit 1 }
 } else {
   $ptr = [IntPtr]::Zero
@@ -102,7 +107,7 @@ function runSpawn(
 // this file's own contract that every exported function here never throws.
 function runWindowsCredCommand(
   spawnSyncImpl: typeof Bun.spawnSync,
-  action: "read" | "write",
+  action: "read" | "write" | "delete",
   target: string,
   value?: string
 ): { exitCode: number; stdout: string } {
@@ -113,7 +118,27 @@ function runWindowsCredCommand(
     return { exitCode: 1, stdout: "" };
   }
 
-  const cmd = ["powershell", "-NoProfile", "-NonInteractive", "-File", scriptPath, "-Action", action, "-Target", target];
+  // -ExecutionPolicy Bypass is not optional here. Windows clients default to
+  // `Restricted`, and plenty of managed machines are pinned to `AllSigned` by
+  // group policy — under either, running an unsigned .ps1 via -File is
+  // refused outright. Because every failure in this module is deliberately
+  // indistinguishable from "no entry stored", that refusal wouldn't surface
+  // as an error: the keychain would simply appear empty forever, silently
+  // downgrading the install to a plaintext key file. Bypass applies to this
+  // process only and needs no elevation; it does not change machine policy.
+  const cmd = [
+    "powershell",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    scriptPath,
+    "-Action",
+    action,
+    "-Target",
+    target,
+  ];
   if (value !== undefined) cmd.push("-Value", value);
 
   return runSpawn(spawnSyncImpl, cmd);
@@ -179,5 +204,51 @@ export function setInKeychain(
     ["secret-tool", "store", "--label", service, "service", service, "account", account],
     value
   );
+  return exitCode === 0;
+}
+
+/**
+ * Removes a stored secret. Same never-throws contract as the rest of this
+ * module — a missing tool, a missing entry or a refused call all come back as
+ * `false` rather than an exception.
+ *
+ * Exists for the CLI's "clear app data" flow: that promises to delete the
+ * encryption key along with the database, and on a desktop install the key
+ * lives here rather than in the data directory, so wiping the directory alone
+ * would leave a live secret behind in Credential Manager/Keychain.
+ */
+export function deleteFromKeychain(
+  service: string,
+  account: string,
+  spawnSyncImpl: typeof Bun.spawnSync = Bun.spawnSync,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  const target = `${service}/${account}`;
+
+  if (platform === "darwin") {
+    const { exitCode } = runSpawn(spawnSyncImpl, [
+      "security",
+      "delete-generic-password",
+      "-a",
+      account,
+      "-s",
+      service,
+    ]);
+    return exitCode === 0;
+  }
+
+  if (platform === "win32") {
+    const { exitCode } = runWindowsCredCommand(spawnSyncImpl, "delete", target);
+    return exitCode === 0;
+  }
+
+  const { exitCode } = runSpawn(spawnSyncImpl, [
+    "secret-tool",
+    "clear",
+    "service",
+    service,
+    "account",
+    account,
+  ]);
   return exitCode === 0;
 }

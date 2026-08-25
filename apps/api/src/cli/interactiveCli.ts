@@ -15,6 +15,8 @@ import {
   SLACK_WEBHOOK_URL_SETTING_KEY,
   type ResolvedSlackWebhookUrl,
 } from "../notifications/slack.js";
+import { deleteFromKeychain } from "../keychain.js";
+import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE } from "../secrets.js";
 import { readLastUsedPort, saveLastUsedPort } from "./cliConfig.js";
 import { openInBrowser } from "./openBrowser.js";
 import { isValidPort } from "./port.js";
@@ -58,6 +60,10 @@ interface RunInteractiveCliOptions {
   openBrowser?: (url: string) => Promise<boolean>;
   spawnRestart?: (port: number) => void;
   rmDataDir?: (dir: string) => void;
+  /** Removes the encryption key from the OS keychain. Separate from
+   * rmDataDir because on a desktop install the key doesn't live in dataDir
+   * at all — see the "clear" branch below. */
+  deleteKeychainKey?: () => boolean;
   exit?: (code: number) => never;
   getSlackWebhookStatus?: () => ResolvedSlackWebhookUrl;
   setSlackWebhookUrl?: (url: string) => void;
@@ -106,6 +112,7 @@ export async function runInteractiveCli(options: RunInteractiveCliOptions): Prom
     openBrowser = openInBrowser,
     spawnRestart = defaultSpawnRestart,
     rmDataDir = defaultRmDataDir,
+    deleteKeychainKey = () => deleteFromKeychain(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT),
     exit = process.exit,
     getSlackWebhookStatus = () => resolveSlackWebhookUrl(db),
     setSlackWebhookUrl = (url: string) => setSettingValue(db, SLACK_WEBHOOK_URL_SETTING_KEY, url),
@@ -236,7 +243,7 @@ export async function runInteractiveCli(options: RunInteractiveCliOptions): Prom
 
     if (choice === "clear") {
       const confirmed = await askQuestion(
-        `${color.red(`⚠ This deletes the database, encryption key, and saved preferences — everything under ${dataDir}.`)}\nType ${color.bold(color.red("DELETE"))} to confirm: `
+        `${color.red(`⚠ This deletes everything under ${dataDir} — the database and saved preferences — plus the encryption key, wherever it is stored (this app's OS keychain entry included).`)}\nType ${color.bold(color.red("DELETE"))} to confirm: `
       );
       if (confirmed.trim() !== "DELETE") {
         console.log(color.gray("Not cleared."));
@@ -245,6 +252,13 @@ export async function runInteractiveCli(options: RunInteractiveCliOptions): Prom
       await app.close();
       db.close();
       rmDataDir(dataDir);
+      // On a desktop install the encryption key lives in the OS keychain, not
+      // in dataDir, so wiping the directory alone would leave a live secret
+      // behind in Credential Manager/Keychain — after the user explicitly
+      // asked to delete everything, and after being told that's what would
+      // happen. A false return just means there was nothing there to delete
+      // (headless installs keep the key in dataDir, already gone above).
+      deleteKeychainKey();
       console.log(`${color.green("✓")} App data cleared. Run the app again to start fresh.`);
       exit(0);
       return;

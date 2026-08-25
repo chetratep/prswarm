@@ -438,6 +438,39 @@ describe("openDatabase write interception", () => {
     }
   });
 
+  it("wraps a cached Statement exactly once, however many times the same SQL is queried", () => {
+    vi.useFakeTimers();
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      const sql = `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`;
+
+      const first = db.query(sql);
+      // The precondition that makes re-wrapping unbounded rather than
+      // harmless: bun:sqlite caches prepared statements by SQL text, so this
+      // is literally the same object, already carrying the wrapper installed
+      // on the first lookup.
+      expect(db.query(sql)).toBe(first);
+
+      const runAfterFirstLookup = first.run;
+      for (let i = 0; i < 500; i++) db.query(sql);
+      // Unfixed, each of those 500 lookups wrapped the previous wrapper —
+      // a new function reference every time, one more onWrite() per call, and
+      // one more stack frame on every future run().
+      expect(first.run).toBe(runAfterFirstLookup);
+
+      // Still a working, still-dirty-marking statement after all that.
+      first.run("id-cached-stmt", "PAT", "octocat", null, null, "enc", "2026-01-01T00:00:00.000Z");
+      vi.advanceTimersByTime(600);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("supports db.transaction(fn).immediate(...) without throwing, and still tracks it for auto-flush", () => {
     vi.useFakeTimers();
     try {

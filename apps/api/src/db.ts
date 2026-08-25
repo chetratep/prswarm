@@ -164,7 +164,20 @@ function interceptWrites(db: AppDatabase, onWrite: () => void): void {
   // then mark dirty" wrapping — a caller that reaches for db.query(sql).run()
   // instead of db.prepare(sql).run() must be tracked identically, not
   // silently skipped.
+  //
+  // Tracked in a WeakSet because bun:sqlite caches prepared statements by SQL
+  // text — db.query(sql) hands back the *same* Statement object every time it
+  // is called with the same SQL. Without this check each call wrapped the
+  // already-wrapped run(), nesting one closure deeper every time: onWrite()
+  // fired once per layer, and around 17k identical calls the call stack
+  // overflowed outright. Wrapping is idempotent now, and a statement's run()
+  // stays the same function reference across repeat lookups.
+  const wrappedStatements = new WeakSet<object>();
+
   const wrapStatementRun = <S extends { run: (...args: any[]) => unknown }>(stmt: S): S => {
+    if (wrappedStatements.has(stmt)) return stmt;
+    wrappedStatements.add(stmt);
+
     const originalRun = (stmt.run as (...a: unknown[]) => unknown).bind(stmt);
     stmt.run = ((...runArgs: unknown[]) => {
       const result = originalRun(...runArgs);

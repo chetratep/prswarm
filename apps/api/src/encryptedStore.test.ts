@@ -157,6 +157,35 @@ describe("flush", () => {
     expect(reloaded.query("SELECT x FROM t").all()).toEqual([{ x: 1 }]);
   });
 
+  it("refuses to publish a short write, leaving the existing encrypted database intact", () => {
+    const db = loadEncryptedDatabase(dbPath);
+    db.exec("CREATE TABLE t (x INTEGER)");
+    db.prepare("INSERT INTO t VALUES (1)").run();
+    flush(db, dbPath);
+    const originalBytes = fs.readFileSync(dbPath);
+
+    db.prepare("INSERT INTO t VALUES (2)").run();
+
+    // A partial write — legitimate POSIX behaviour under disk-quota pressure,
+    // and the one failure mode that produces silent corruption rather than a
+    // visible error: truncated ciphertext fails its GCM auth tag, so the next
+    // boot finds an undecryptable database instead of an out-of-date one.
+    const writeSpy = vi.spyOn(fs, "writeSync").mockImplementationOnce(() => 10);
+    const renameSpy = vi.spyOn(fs, "renameSync");
+    try {
+      expect(() => flush(db, dbPath)).toThrow(/short write/i);
+      // The truncated temp file must never be renamed over the real one.
+      expect(renameSpy).not.toHaveBeenCalled();
+    } finally {
+      writeSpy.mockRestore();
+      renameSpy.mockRestore();
+    }
+
+    expect(fs.readFileSync(dbPath).equals(originalBytes)).toBe(true);
+    const reloaded = loadEncryptedDatabase(dbPath);
+    expect(reloaded.query("SELECT x FROM t").all()).toEqual([{ x: 1 }]);
+  });
+
   it("does not leave orphaned temp files after a normal flush", () => {
     const db = loadEncryptedDatabase(dbPath);
     db.exec("CREATE TABLE t (x INTEGER)");
