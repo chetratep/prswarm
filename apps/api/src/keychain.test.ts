@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
 import { getFromKeychain, setInKeychain } from "./keychain.js";
 
 function fakeSpawnResult(exitCode: number, stdout = ""): ReturnType<typeof Bun.spawnSync> {
@@ -52,6 +53,21 @@ describe("getFromKeychain", () => {
     expect(() => getFromKeychain("prswarm", "encryption-key", spawn, "linux")).not.toThrow();
     expect(getFromKeychain("prswarm", "encryption-key", spawn, "linux")).toBeUndefined();
   });
+
+  it("returns undefined, not throws, when writing the Windows helper script fails (disk full, permissions, AV lock)", () => {
+    const writeSpy = vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+      throw new Error("EACCES: permission denied");
+    });
+    const spawn = vi.fn();
+    try {
+      expect(() => getFromKeychain("prswarm", "encryption-key", spawn, "win32")).not.toThrow();
+      expect(getFromKeychain("prswarm", "encryption-key", spawn, "win32")).toBeUndefined();
+      // The spawn call must never happen once the script write itself failed.
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
 });
 
 describe("setInKeychain", () => {
@@ -82,5 +98,20 @@ describe("setInKeychain", () => {
   it("returns false, not throws, on failure", () => {
     const spawn = vi.fn().mockReturnValue(fakeSpawnResult(1));
     expect(setInKeychain("prswarm", "encryption-key", "deadbeef", spawn, "darwin")).toBe(false);
+  });
+
+  it("returns false, not throws, when writing the Windows helper script fails (disk full, permissions, AV lock)", () => {
+    const writeSpy = vi.spyOn(fs, "writeFileSync").mockImplementation(() => {
+      throw new Error("ENOSPC: no space left on device");
+    });
+    const spawn = vi.fn();
+    try {
+      expect(() => setInKeychain("prswarm", "encryption-key", "deadbeef", spawn, "win32")).not.toThrow();
+      expect(setInKeychain("prswarm", "encryption-key", "deadbeef", spawn, "win32")).toBe(false);
+      // The spawn call must never happen once the script write itself failed.
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 });

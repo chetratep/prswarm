@@ -93,6 +93,32 @@ function runSpawn(
   }
 }
 
+// Windows-only: writes the helper script to a temp file, then spawns
+// PowerShell against it. The script write happens outside `runSpawn`'s own
+// try/catch (it's a filesystem call, not a spawn call), so it needs its own
+// failure boundary here — a write failure (permissions, disk full, an AV
+// lock on the temp file) must degrade to the same "not found" result as a
+// missing `security`/`secret-tool` binary does on the other platforms, per
+// this file's own contract that every exported function here never throws.
+function runWindowsCredCommand(
+  spawnSyncImpl: typeof Bun.spawnSync,
+  action: "read" | "write",
+  target: string,
+  value?: string
+): { exitCode: number; stdout: string } {
+  let scriptPath: string;
+  try {
+    scriptPath = writeWindowsCredScript();
+  } catch {
+    return { exitCode: 1, stdout: "" };
+  }
+
+  const cmd = ["powershell", "-NoProfile", "-NonInteractive", "-File", scriptPath, "-Action", action, "-Target", target];
+  if (value !== undefined) cmd.push("-Value", value);
+
+  return runSpawn(spawnSyncImpl, cmd);
+}
+
 export function getFromKeychain(
   service: string,
   account: string,
@@ -101,12 +127,15 @@ export function getFromKeychain(
 ): string | undefined {
   const target = `${service}/${account}`;
 
+  if (platform === "win32") {
+    const { exitCode, stdout } = runWindowsCredCommand(spawnSyncImpl, "read", target);
+    return exitCode === 0 && stdout.length > 0 ? stdout : undefined;
+  }
+
   const cmd =
     platform === "darwin"
       ? ["security", "find-generic-password", "-a", account, "-s", service, "-w"]
-      : platform === "win32"
-        ? ["powershell", "-NoProfile", "-NonInteractive", "-File", writeWindowsCredScript(), "-Action", "read", "-Target", target]
-        : ["secret-tool", "lookup", "service", service, "account", account];
+      : ["secret-tool", "lookup", "service", service, "account", account];
 
   const { exitCode, stdout } = runSpawn(spawnSyncImpl, cmd);
   return exitCode === 0 && stdout.length > 0 ? stdout : undefined;
@@ -137,19 +166,7 @@ export function setInKeychain(
   }
 
   if (platform === "win32") {
-    const { exitCode } = runSpawn(spawnSyncImpl, [
-      "powershell",
-      "-NoProfile",
-      "-NonInteractive",
-      "-File",
-      writeWindowsCredScript(),
-      "-Action",
-      "write",
-      "-Target",
-      target,
-      "-Value",
-      value,
-    ]);
+    const { exitCode } = runWindowsCredCommand(spawnSyncImpl, "write", target, value);
     return exitCode === 0;
   }
 
