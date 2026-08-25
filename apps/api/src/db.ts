@@ -87,26 +87,53 @@ function wireAutoFlush(db: AppDatabase, databasePath: string): void {
 }
 
 function interceptWrites(db: AppDatabase, onWrite: () => void): void {
+  // Shared between prepare() and query(): both return a Statement whose own
+  // .run() performs a write, and both need the exact same "call through,
+  // then mark dirty" wrapping — a caller that reaches for db.query(sql).run()
+  // instead of db.prepare(sql).run() must be tracked identically, not
+  // silently skipped.
+  const wrapStatementRun = <S extends { run: (...args: any[]) => unknown }>(stmt: S): S => {
+    const originalRun = (stmt.run as (...a: unknown[]) => unknown).bind(stmt);
+    stmt.run = ((...runArgs: unknown[]) => {
+      const result = originalRun(...runArgs);
+      onWrite();
+      return result;
+    }) as S["run"];
+    return stmt;
+  };
+
   const originalPrepare = db.prepare.bind(db);
   db.prepare = ((sql: string, ...rest: unknown[]) => {
     const stmt = (originalPrepare as (...a: unknown[]) => ReturnType<typeof db.prepare>)(sql, ...rest);
-    const originalRun = stmt.run.bind(stmt);
-    stmt.run = ((...runArgs: unknown[]) => {
-      const result = (originalRun as (...a: unknown[]) => unknown)(...runArgs);
+    return wrapStatementRun(stmt);
+  }) as typeof db.prepare;
+
+  const originalQuery = db.query.bind(db);
+  db.query = ((sql: string, ...rest: unknown[]) => {
+    const stmt = (originalQuery as (...a: unknown[]) => ReturnType<typeof db.query>)(sql, ...rest);
+    return wrapStatementRun(stmt);
+  }) as typeof db.query;
+
+  // Shared between the base transaction function and its deferred/
+  // immediate/exclusive variants — each of those independently begins and
+  // commits a transaction (BEGIN DEFERRED/IMMEDIATE/EXCLUSIVE respectively),
+  // so each needs its own "call through, then mark dirty" wrapping, not just
+  // an alias to the base wrapper.
+  const wrapTransactionFn = <F extends (...args: unknown[]) => unknown>(fn: F): F =>
+    ((...args: unknown[]) => {
+      const result = fn(...args);
       onWrite();
       return result;
-    }) as typeof stmt.run;
-    return stmt;
-  }) as typeof db.prepare;
+    }) as F;
 
   const originalTransaction = db.transaction.bind(db);
   db.transaction = ((fn: (...args: unknown[]) => unknown) => {
     const wrapped = originalTransaction(fn);
-    return ((...args: unknown[]) => {
-      const result = (wrapped as (...a: unknown[]) => unknown)(...args);
-      onWrite();
-      return result;
-    }) as typeof wrapped;
+    const outer = wrapTransactionFn(wrapped as (...args: unknown[]) => unknown) as typeof wrapped;
+    outer.deferred = wrapTransactionFn(wrapped.deferred);
+    outer.immediate = wrapTransactionFn(wrapped.immediate);
+    outer.exclusive = wrapTransactionFn(wrapped.exclusive);
+    return outer;
   }) as typeof db.transaction;
 
   const originalExec = db.exec.bind(db);
@@ -115,6 +142,16 @@ function interceptWrites(db: AppDatabase, onWrite: () => void): void {
     onWrite();
     return result;
   }) as typeof db.exec;
+
+  // db.run() is a direct-write convenience method distinct from
+  // db.prepare(sql).run() (see bun:sqlite's Database.run) — same
+  // "call through, then mark dirty" wrapping as everything else here.
+  const originalRun = db.run.bind(db);
+  db.run = ((sql: string, ...rest: unknown[]) => {
+    const result = (originalRun as (...a: unknown[]) => unknown)(sql, ...rest);
+    onWrite();
+    return result;
+  }) as typeof db.run;
 }
 
 function runMigrations(db: AppDatabase): void {

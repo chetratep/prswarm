@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +14,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Defensive: if a fake-timers test above threw somewhere other than its
+  // own try/finally, this guarantees real timers are restored before the
+  // next test runs, rather than leaking fake time across tests.
+  vi.useRealTimers();
   if (db) {
     db.close();
     db = undefined;
@@ -158,6 +162,134 @@ describe("openDatabase schema", () => {
       user_id: string | null;
     };
     expect(row.user_id).toBe("local");
+  });
+});
+
+function insertConnectionRow(id: string): void {
+  db!.prepare(
+    `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, "PAT", "octocat", null, null, "enc", "2026-01-01T00:00:00.000Z");
+}
+
+describe("openDatabase auto-flush debounce", () => {
+  // Each on-disk flush re-encrypts with a fresh random IV (see crypto.ts's
+  // encryptBuffer), so the encrypted bytes on disk differ after every real
+  // flush even when the underlying plaintext is identical. That makes "did
+  // the file on disk change" a reliable, decryption-free signal for "did a
+  // flush actually happen" — no need to spy on encryptedStore.js's flush()
+  // export (ESM export bindings aren't reliably spy-able) or decrypt the
+  // file to check its content.
+
+  it("does not flush before the 500ms debounce window elapses, then flushes once it does", () => {
+    vi.useFakeTimers();
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      insertConnectionRow("id-debounce-1");
+
+      // Still within the debounce window: no flush yet.
+      vi.advanceTimersByTime(400);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(true);
+
+      // Past the 500ms mark since the write: the debounced flush should
+      // have fired.
+      vi.advanceTimersByTime(150);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("forces a flush within the 5s max delay even under writes that never stop long enough for the 500ms debounce to fire on its own", () => {
+    vi.useFakeTimers();
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      let flushed = false;
+      // 200ms between writes never leaves a 500ms quiet gap for the plain
+      // debounce to fire on its own — only the 5s max-delay cap can force a
+      // flush here. 30 iterations * 200ms = 6s of simulated time, well past
+      // the 5s cap, so a flush must happen before the loop ends.
+      for (let i = 0; i < 30 && !flushed; i++) {
+        insertConnectionRow(`id-sustained-${i}`);
+        vi.advanceTimersByTime(200);
+        flushed = !fs.readFileSync(dbPath).equals(afterOpen);
+      }
+
+      expect(flushed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("openDatabase write interception", () => {
+  it("tracks a write made via db.run() (not just prepare().run()) for auto-flush", () => {
+    vi.useFakeTimers();
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      db.run(
+        `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
+         VALUES ('id-direct-run', 'PAT', 'octocat', NULL, NULL, 'enc', '2026-01-01T00:00:00.000Z')`
+      );
+
+      vi.advanceTimersByTime(600);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tracks a write made via db.query(sql).run() (not just db.prepare(sql).run()) for auto-flush", () => {
+    vi.useFakeTimers();
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      db
+        .query(
+          `INSERT INTO connections (id, type, login, app_id, installation_id, encrypted_token, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run("id-query-run", "PAT", "octocat", null, null, "enc", "2026-01-01T00:00:00.000Z");
+
+      vi.advanceTimersByTime(600);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supports db.transaction(fn).immediate(...) without throwing, and still tracks it for auto-flush", () => {
+    vi.useFakeTimers();
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      const insertImmediate = db.transaction((id: string) => {
+        insertConnectionRow(id);
+      });
+
+      expect(() => insertImmediate.immediate("id-tx-immediate")).not.toThrow();
+
+      const row = db.prepare("SELECT * FROM connections WHERE id = ?").get("id-tx-immediate");
+      expect(row).toBeTruthy();
+
+      vi.advanceTimersByTime(600);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
