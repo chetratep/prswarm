@@ -186,6 +186,29 @@ describe("flush", () => {
     expect(reloaded.query("SELECT x FROM t").all()).toEqual([{ x: 1 }]);
   });
 
+  it("cleans up its temp file when a flush fails, so retries don't pile up orphans", () => {
+    const db = loadEncryptedDatabase(dbPath);
+    db.exec("CREATE TABLE t (x INTEGER)");
+    flush(db, dbPath);
+
+    // Five failed attempts, exactly as db.ts's retry timer would produce
+    // against a disk that stays full — each picks a fresh random temp name,
+    // so nothing is overwritten and every one would otherwise survive.
+    const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw new Error("ENOSPC: no space left on device");
+    });
+    try {
+      for (let i = 0; i < 5; i++) {
+        db.prepare("INSERT INTO t VALUES (?)").run(i);
+        expect(() => flush(db, dbPath)).toThrow(/ENOSPC/);
+      }
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect(fs.readdirSync(tempDir).filter((e) => e.includes(".tmp-"))).toHaveLength(0);
+  });
+
   it("does not leave orphaned temp files after a normal flush", () => {
     const db = loadEncryptedDatabase(dbPath);
     db.exec("CREATE TABLE t (x INTEGER)");

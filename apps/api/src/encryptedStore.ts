@@ -133,27 +133,40 @@ export function flush(db: Database, databasePath: string): void {
   fs.mkdirSync(dir, { recursive: true });
 
   const tmpPath = tempFilePathFor(databasePath);
-  const fd = fs.openSync(tmpPath, "w");
   try {
-    // writeSync can legitimately write fewer bytes than it was given (disk
-    // quota pressure is the classic case). Ignoring that and continuing to
-    // fsync and rename would publish a truncated file over a healthy one —
-    // and truncated ciphertext fails its GCM auth tag, so the next boot finds
-    // an undecryptable database rather than an old one. Throwing here instead
-    // routes it into the caller's retry path (see db.ts's flushNow) and
-    // leaves the existing file untouched.
-    const bytesWritten = fs.writeSync(fd, encrypted);
-    if (bytesWritten !== encrypted.length) {
-      throw new Error(
-        `Short write while flushing the encrypted database: wrote ${bytesWritten} of ${encrypted.length} bytes to ${tmpPath}.`
-      );
+    const fd = fs.openSync(tmpPath, "w");
+    try {
+      // writeSync can legitimately write fewer bytes than it was given (disk
+      // quota pressure is the classic case). Ignoring that and continuing to
+      // fsync and rename would publish a truncated file over a healthy one —
+      // and truncated ciphertext fails its GCM auth tag, so the next boot
+      // finds an undecryptable database rather than an old one. Throwing here
+      // instead routes it into the caller's retry path (see db.ts's flushNow)
+      // and leaves the existing file untouched.
+      const bytesWritten = fs.writeSync(fd, encrypted);
+      if (bytesWritten !== encrypted.length) {
+        throw new Error(
+          `Short write while flushing the encrypted database: wrote ${bytesWritten} of ${encrypted.length} bytes to ${tmpPath}.`
+        );
+      }
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
     }
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
 
-  fs.renameSync(tmpPath, databasePath);
+    fs.renameSync(tmpPath, databasePath);
+  } catch (err) {
+    // Remove the half-written temp file before propagating. A failed flush is
+    // retried on a timer (see db.ts's flushNow), each attempt picking a fresh
+    // random temp name — without this, a disk that stays full would leave one
+    // orphan per attempt, and cleanupStaleTempFiles() only sweeps at startup.
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch {
+      // Nothing useful to do, and it must not mask the real failure below.
+    }
+    throw err;
+  }
 }
 
 /**
