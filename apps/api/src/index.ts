@@ -15,6 +15,7 @@ import { bootstrapAuth } from "./auth/bootstrap.js";
 import { registerSession } from "./auth/session.js";
 import { assertEncryptionKeyConfigured } from "./crypto.js";
 import { openDatabase } from "./db.js";
+import { flush } from "./encryptedStore.js";
 import { embeddedAssets } from "./embeddedAssets.generated.js";
 import { defaultDataDir } from "./paths.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -154,6 +155,17 @@ async function main(): Promise<void> {
 
   const db = openDatabase(databasePath);
 
+  // Guaranteed final flush on an OS-level stop (Ctrl+C, `docker stop`,
+  // `systemctl stop`) — the debounced auto-flush inside openDatabase()
+  // already covers steady-state writes, but a signal can arrive mid-debounce
+  // window, and this makes sure that last write isn't lost.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      flush(db, databasePath);
+      process.exit(0);
+    });
+  }
+
   bootstrapAuth(db, {
     authEnabled,
     authUsername: process.env.AUTH_USERNAME,
@@ -179,6 +191,7 @@ async function main(): Promise<void> {
       db,
       listen: (port) => buildAndListen(db, authEnabled, port),
       initialPort: cliArgs.port ?? envPort,
+      flushNow: () => flush(db, databasePath),
     });
     return;
   }

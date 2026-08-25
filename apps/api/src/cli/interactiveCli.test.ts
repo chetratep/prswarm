@@ -97,9 +97,10 @@ describe("runInteractiveCli", () => {
     const app = fakeApp();
     const db = fakeDb();
     const listen = vi.fn().mockResolvedValue(app);
+    const flushNow = vi.fn();
     const { exit } = fakeExit();
 
-    const run = start({ dataDir: tempDir, db, listen, input, output, exit });
+    const run = start({ dataDir: tempDir, db, listen, flushNow, input, output, exit });
     await type(input, ""); // accept default port 3000
     await type(input, "x"); // exit
 
@@ -108,6 +109,7 @@ describe("runInteractiveCli", () => {
     expect(readLastUsedPort(tempDir)).toBe(3000);
     expect(app.close).toHaveBeenCalled();
     expect(db.close).toHaveBeenCalled();
+    expect(flushNow).toHaveBeenCalled();
   });
 
   it("uses the last-used port as the new default", async () => {
@@ -232,12 +234,14 @@ describe("runInteractiveCli", () => {
     const db = fakeDb();
     const listen = vi.fn().mockResolvedValue(app);
     const spawnRestart = vi.fn();
+    const flushNow = vi.fn();
     const { exit } = fakeExit();
 
     const run = start({
       dataDir: tempDir,
       db,
       listen,
+      flushNow,
       input,
       output,
       spawnRestart,
@@ -250,6 +254,7 @@ describe("runInteractiveCli", () => {
     await expectExit(run, 0);
     expect(app.close).toHaveBeenCalled();
     expect(db.close).toHaveBeenCalled();
+    expect(flushNow).toHaveBeenCalled();
     expect(spawnRestart).toHaveBeenCalledWith(4000);
   });
 
@@ -306,6 +311,7 @@ describe("runInteractiveCli", () => {
     const app = fakeApp();
     const db = fakeDb();
     const rmDataDir = vi.fn();
+    const flushNow = vi.fn();
     const listen = vi.fn().mockResolvedValue(app);
     const { exit } = fakeExit();
 
@@ -313,6 +319,7 @@ describe("runInteractiveCli", () => {
       dataDir: tempDir,
       db,
       listen,
+      flushNow,
       input,
       output,
       rmDataDir,
@@ -326,6 +333,7 @@ describe("runInteractiveCli", () => {
     expect(app.close).toHaveBeenCalled();
     expect(db.close).toHaveBeenCalled();
     expect(rmDataDir).toHaveBeenCalledWith(tempDir);
+    expect(flushNow).not.toHaveBeenCalled();
   });
 
   it("ignores an unrecognized menu choice and keeps prompting", async () => {
