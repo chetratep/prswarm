@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -68,6 +68,18 @@ describe("loadEncryptedDatabase", () => {
     legacyDb.prepare("INSERT INTO legacy VALUES ('pre-migration data')").run();
     legacyDb.close();
 
+    // Test-only: bun:sqlite on Windows doesn't reliably release a closed,
+    // data-written connection's OS file handle synchronously with close()
+    // (see migrateLegacyPlaintextDatabase's comment in encryptedStore.ts
+    // for the full story). In real deployment this legacy file was written
+    // and closed by a *previous, already-exited* process, so there's
+    // nothing to release by the time migration runs here. This test writes
+    // it in the *same* process for simplicity, which reintroduces that
+    // same-process-only hazard purely as a test artifact — nudge it clear
+    // before exercising the migration + flush() below, which itself must
+    // stay entirely free of any such nudge.
+    Bun.gc(true);
+
     const migrated = loadEncryptedDatabase(dbPath);
     expect(migrated.query("SELECT y FROM legacy").all()).toEqual([{ y: "pre-migration data" }]);
 
@@ -80,6 +92,40 @@ describe("loadEncryptedDatabase", () => {
     const reloaded = loadEncryptedDatabase(dbPath);
     expect(reloaded.query("SELECT y FROM legacy").all()).toEqual([{ y: "pre-migration data" }]);
   });
+
+  it("recovers committed-but-uncheckpointed WAL data during migration (process killed before a clean close)", () => {
+    // A real legacy instance of this app runs in WAL mode (see db.ts). A
+    // clean `.close()` on the last connection to a WAL database triggers
+    // SQLite's own automatic checkpoint, which would consolidate everything
+    // into the base .db file and silently pass this test even if migration
+    // never looked at the -wal file at all. To exercise the actual recovery
+    // path, this test writes data and deliberately never calls `.close()`
+    // on the writer connection — simulating a process that was killed
+    // before a clean shutdown, leaving committed frames sitting only in the
+    // `-wal` sidecar.
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec("PRAGMA journal_mode = WAL");
+    legacyDb.exec("CREATE TABLE legacy (y TEXT)");
+    legacyDb.prepare("INSERT INTO legacy VALUES ('uncheckpointed wal data')").run();
+
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(true);
+
+    const migrated = loadEncryptedDatabase(dbPath);
+    expect(migrated.query("SELECT y FROM legacy").all()).toEqual([
+      { y: "uncheckpointed wal data" },
+    ]);
+
+    // Test-only cleanup: close the writer connection now that the recovery
+    // assertion above is done, and force a GC pass so its OS file handle is
+    // actually released before this test's tempDir gets removed (bun:sqlite
+    // on Windows doesn't reliably release a closed, data-written
+    // connection's handle synchronously with close() — the same underlying
+    // quirk documented on migrateLegacyPlaintextDatabase in
+    // encryptedStore.ts). This is purely local test teardown hygiene, not a
+    // production code path — the module under test never does this itself.
+    legacyDb.close();
+    Bun.gc(true);
+  });
 });
 
 describe("flush", () => {
@@ -90,12 +136,22 @@ describe("flush", () => {
     flush(db, dbPath);
     const originalBytes = fs.readFileSync(dbPath);
 
-    // Simulate a crash after the temp file is written but before rename:
-    // create the temp file by hand, at the exact naming convention flush()
-    // uses, then confirm the real path is untouched by its mere presence.
-    const staleTemp = path.join(tempDir, `.${path.basename(dbPath)}.tmp-deadbeef`);
-    fs.writeFileSync(staleTemp, Buffer.from("garbage, simulating an interrupted flush"));
+    // Mutate the in-memory DB further, then simulate a crash that happens
+    // after the temp file has been fully written and fsynced but before the
+    // rename that would publish it, by making the rename itself throw. This
+    // genuinely exercises flush()'s write-then-rename ordering, rather than
+    // merely asserting that an unrelated stray file is ignored.
+    db.prepare("INSERT INTO t VALUES (2)").run();
+    const renameSpy = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+      throw new Error("simulated crash between temp write and rename");
+    });
 
+    expect(() => flush(db, dbPath)).toThrow(/simulated crash/);
+    renameSpy.mockRestore();
+
+    // The real file must be byte-for-byte unchanged — flush() never wrote
+    // to it directly, only to the temp file, and the rename that would have
+    // published the temp file's contents never completed.
     expect(fs.readFileSync(dbPath).equals(originalBytes)).toBe(true);
     const reloaded = loadEncryptedDatabase(dbPath);
     expect(reloaded.query("SELECT x FROM t").all()).toEqual([{ x: 1 }]);
