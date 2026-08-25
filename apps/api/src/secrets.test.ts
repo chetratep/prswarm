@@ -88,4 +88,47 @@ describe("resolveEncryptionKey", () => {
     expect(result.source).toBe("generated");
     expect(fs.existsSync(path.join(tempDir, "encryption.key"))).toBe(true);
   });
+
+  it("prefers keychain over existing file when both are present", () => {
+    const fakeStore = new Map<string, string>();
+    const keychainKey = Buffer.alloc(32, 5).toString("hex");
+    const fileKey = Buffer.alloc(32, 6).toString("hex");
+
+    const fakeGet = ((service: string, account: string) => fakeStore.get(`${service}/${account}`)) as typeof getFromKeychain;
+    const fakeSet = ((service: string, account: string, value: string) => {
+      fakeStore.set(`${service}/${account}`, value);
+      return true;
+    }) as typeof setInKeychain;
+
+    // Pre-populate both keychain and file with different keys
+    fakeStore.set("prswarm/encryption-key", keychainKey);
+    fs.mkdirSync(tempDir, { recursive: true });
+    fs.writeFileSync(path.join(tempDir, "encryption.key"), fileKey, { mode: 0o600 });
+
+    const result = resolveEncryptionKey(tempDir, { getFromKeychain: fakeGet, setInKeychain: fakeSet });
+    expect(result.source).toBe("keychain");
+    expect(result.key.equals(Buffer.from(keychainKey, "hex"))).toBe(true);
+    expect(result.key.equals(Buffer.from(fileKey, "hex"))).toBe(false);
+  });
+
+  it("prefers env var over keychain when both are present", () => {
+    const fakeStore = new Map<string, string>();
+    const envKey = Buffer.alloc(32, 9).toString("hex");
+    const keychainKey = Buffer.alloc(32, 8).toString("hex");
+
+    const fakeGet = ((service: string, account: string) => fakeStore.get(`${service}/${account}`)) as typeof getFromKeychain;
+    const fakeSet = ((service: string, account: string, value: string) => {
+      fakeStore.set(`${service}/${account}`, value);
+      return true;
+    }) as typeof setInKeychain;
+
+    // Pre-populate env var and keychain with different keys
+    process.env.ENCRYPTION_KEY = envKey;
+    fakeStore.set("prswarm/encryption-key", keychainKey);
+
+    const result = resolveEncryptionKey(tempDir, { getFromKeychain: fakeGet, setInKeychain: fakeSet });
+    expect(result.source).toBe("env");
+    expect(result.key.equals(Buffer.from(envKey, "hex"))).toBe(true);
+    expect(result.key.equals(Buffer.from(keychainKey, "hex"))).toBe(false);
+  });
 });

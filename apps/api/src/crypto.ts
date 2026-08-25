@@ -27,6 +27,8 @@ export function assertEncryptionKeyConfigured(): void {
   cachedKey = resolved.key;
   if (resolved.source === "generated") {
     console.log(`Generated a new encryption key at ${resolved.filePath}`);
+  } else if (resolved.source === "generated-keychain") {
+    console.log("Generated a new encryption key and stored it in the OS keychain");
   }
 }
 
