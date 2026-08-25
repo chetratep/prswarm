@@ -13,8 +13,9 @@ import fastifyStatic from "@fastify/static";
 import type { AppDatabase } from "./db.js";
 import { bootstrapAuth } from "./auth/bootstrap.js";
 import { registerSession } from "./auth/session.js";
-import { assertEncryptionKeyConfigured } from "./crypto.js";
+import { assertEncryptionKeyAvailableFor, assertEncryptionKeyConfigured } from "./crypto.js";
 import { openDatabase } from "./db.js";
+import { flush } from "./encryptedStore.js";
 import { embeddedAssets } from "./embeddedAssets.generated.js";
 import { defaultDataDir } from "./paths.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -143,16 +144,54 @@ async function main(): Promise<void> {
 
   const authEnabled = process.env.AUTH_ENABLED === "true";
 
+  const databasePath = process.env.DATABASE_PATH
+    ? path.resolve(configBaseDir, process.env.DATABASE_PATH)
+    : path.join(defaultDataDir(), "app.db");
+
+  // Ordered ahead of assertEncryptionKeyConfigured() on purpose: that call
+  // *generates and persists* a key when it can't find one, which would
+  // silently overwrite the keychain entry an existing encrypted database
+  // depends on. This refuses that case up front, and caches the key it does
+  // find so the call below doesn't pay for a second keychain lookup.
+  assertEncryptionKeyAvailableFor(databasePath);
+
   // Resolves the encryption key eagerly (generating and persisting one on first
   // run if none is configured) so a *malformed* key still fails fast at startup
   // rather than the first time a connection is saved.
   assertEncryptionKeyConfigured();
 
-  const databasePath = process.env.DATABASE_PATH
-    ? path.resolve(configBaseDir, process.env.DATABASE_PATH)
-    : path.join(defaultDataDir(), "app.db");
-
   const db = openDatabase(databasePath);
+
+  // A final flush is best-effort by definition: the process is on its way out
+  // either way, so a failure here (disk full, an AV/backup lock on the target
+  // path) must be reported and moved past, never allowed to turn a clean stop
+  // into an uncaught-exception crash that skips the rest of the shutdown.
+  // flush() writes to a temp file and renames, so a failure leaves the
+  // existing on-disk database intact — the cost is the last few seconds of
+  // writes, not corruption.
+  const safeFinalFlush = (): void => {
+    try {
+      flush(db, databasePath);
+    } catch (err) {
+      console.error(
+        `Failed to write the encrypted database to ${databasePath} during shutdown. ` +
+          "The existing file on disk is unchanged, but changes made since the last successful " +
+          "flush are lost.",
+        err
+      );
+    }
+  };
+
+  // Guaranteed final flush on an OS-level stop (Ctrl+C, `docker stop`,
+  // `systemctl stop`) — the debounced auto-flush inside openDatabase()
+  // already covers steady-state writes, but a signal can arrive mid-debounce
+  // window, and this makes sure that last write isn't lost.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      safeFinalFlush();
+      process.exit(0);
+    });
+  }
 
   bootstrapAuth(db, {
     authEnabled,
@@ -179,6 +218,7 @@ async function main(): Promise<void> {
       db,
       listen: (port) => buildAndListen(db, authEnabled, port),
       initialPort: cliArgs.port ?? envPort,
+      flushNow: safeFinalFlush,
     });
     return;
   }

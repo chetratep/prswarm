@@ -1,6 +1,6 @@
-// SQLite setup: opens the database file (creating its parent directory if
-// needed) and runs idempotent CREATE TABLE IF NOT EXISTS migrations for the
-// full schema.
+// SQLite setup: loads the database (as an in-memory bun:sqlite instance,
+// decrypted from an encrypted on-disk blob — see encryptedStore.ts) and runs
+// idempotent CREATE TABLE IF NOT EXISTS migrations for the full schema.
 //
 // Uses bun:sqlite rather than better-sqlite3: this repo's whole stack pitch
 // is "no native toolchain to stand up" (see CLAUDE.md), and better-sqlite3
@@ -9,23 +9,253 @@
 // there's nothing to compile at all — and unlike node:sqlite (used before
 // this migration), it has a native `.transaction()` method, so callers no
 // longer need a hand-rolled BEGIN/COMMIT/ROLLBACK wrapper.
+//
+// Encryption at rest: the working copy of the database lives entirely in
+// memory (bun:sqlite `:memory:`/deserialized, never opened directly against
+// `databasePath`) and only ever reaches disk as an AES-256-GCM-encrypted
+// blob, written atomically by encryptedStore.ts's flush(). Writes are
+// tracked here via a monkey-patch of the returned Database instance's own
+// prepare/transaction/exec/close methods, and flushed on a short debounce
+// (see wireAutoFlush below) rather than after every single write.
+//
+// SINGLE INSTANCE PER DATABASE PATH. This is a hard constraint, and one that
+// changed with encryption at rest: two processes pointed at the same
+// DATABASE_PATH used to be arbitrated by SQLite's own file locking, and now
+// are not. Each process loads its own private in-memory copy at startup and
+// each flush replaces the entire file — so the second process to flush
+// silently discards everything the first one wrote, whole tables included,
+// not just conflicting rows. cleanupStaleTempFiles() below compounds it: it
+// deletes every `.<db>.tmp-*` file in the directory at startup, which would
+// include a live sibling's in-flight temp file.
+//
+// This matches the architecture the app already had — one Bun process, one
+// openDatabase() call at boot, an in-process job queue with no cross-process
+// coordination (see CLAUDE.md's Tech stack notes) — so it is a documented
+// constraint rather than a bug to fix here. Running two instances against one
+// database file was never supported; it just used to fail more visibly.
+// Anything that changes that (a supervisor running replicas, a shared volume
+// mounted into two containers) needs a real coordination mechanism designed
+// for it, not a tweak to the flush path.
 import { Database } from "bun:sqlite";
-import fs from "node:fs";
-import path from "node:path";
+import { assertEncryptionKeyAvailableFor } from "./crypto.js";
+import { classifyDatabaseFile } from "./databaseFormat.js";
+import {
+  cleanupStaleTempFiles,
+  finalizeLegacyMigration,
+  flush,
+  loadEncryptedDatabase,
+} from "./encryptedStore.js";
 
 export type AppDatabase = Database;
 
-export function openDatabase(databasePath: string): AppDatabase {
-  const dir = path.dirname(databasePath);
-  fs.mkdirSync(dir, { recursive: true });
+const AUTO_FLUSH_DEBOUNCE_MS = 500;
+const AUTO_FLUSH_MAX_DELAY_MS = 5000;
+// How long to wait before re-attempting a flush that failed (disk full, an
+// antivirus/backup process holding a transient lock on the target path, a
+// permissions blip). Deliberately longer than the debounce window: a failing
+// flush is retried until it succeeds, and retrying every 500ms would just
+// spin the CPU and spam stderr while, say, a full disk stays full.
+const AUTO_FLUSH_RETRY_DELAY_MS = 2000;
 
-  const db = new Database(databasePath);
-  db.exec("PRAGMA journal_mode = WAL;");
+export function openDatabase(databasePath: string): AppDatabase {
+  // Must come first: everything below eventually resolves the encryption key,
+  // and resolution's last resort is to generate a new one and persist it over
+  // whatever the keychain already held. Against an existing encrypted
+  // database that is unrecoverable data loss, so this refuses outright rather
+  // than letting it happen. index.ts calls this too, ahead of its own
+  // assertEncryptionKeyConfigured(); both calls are cheap and idempotent.
+  assertEncryptionKeyAvailableFor(databasePath);
+
+  cleanupStaleTempFiles(databasePath);
+
+  // Checked before the load, because loading is what changes the answer.
+  const wasLegacyPlaintext = classifyDatabaseFile(databasePath) === "legacy-plaintext";
+
+  const db = loadEncryptedDatabase(databasePath);
   db.exec("PRAGMA foreign_keys = ON;");
+  // No WAL pragma: nothing writes SQLite's native on-disk format directly
+  // any more — the working copy lives in memory and reaches disk only via
+  // flush()'s atomic encrypted write, so WAL's own on-disk journal has
+  // nothing to do here (and would have been written in plaintext).
 
   runMigrations(db);
 
+  // Ensures a valid encrypted file exists immediately after a fresh install
+  // or a legacy-plaintext migration, rather than waiting for the first
+  // real write's debounced flush.
+  flush(db, databasePath);
+
+  // Strictly after the flush above: that call is what replaced the plaintext
+  // file with ciphertext, and only once it has succeeded are the pre-upgrade
+  // plaintext -wal/-shm sidecars safe (and necessary) to delete. If flush
+  // threw, this is skipped and openDatabase fails outright, leaving the whole
+  // pre-upgrade file set intact for a retry.
+  if (wasLegacyPlaintext) {
+    finalizeLegacyMigration(databasePath);
+  }
+
+  wireAutoFlush(db, databasePath);
+
   return db;
+}
+
+function wireAutoFlush(db: AppDatabase, databasePath: string): void {
+  let dirty = false;
+  let firstDirtyAt: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+
+  const flushNow = (): void => {
+    if (!dirty || closed) return;
+    try {
+      flush(db, databasePath);
+    } catch (err) {
+      // A failed flush must never take the process down or drop the pending
+      // writes: the in-memory database is still the authoritative copy, and
+      // the on-disk file is still the last complete, decryptable snapshot
+      // (flush() writes to a temp file and renames, so a failure anywhere in
+      // it leaves the existing file untouched). Keep `dirty` set — and
+      // `firstDirtyAt` unchanged, so the 5s max-delay cap still measures from
+      // the *original* write — and re-arm a timer so the next attempt happens
+      // on its own rather than waiting for the next incidental write.
+      console.error(
+        `Failed to write the encrypted database to ${databasePath}. The pending changes are still ` +
+          `held in memory and the existing file on disk is unchanged; retrying in ` +
+          `${AUTO_FLUSH_RETRY_DELAY_MS}ms.`,
+        err
+      );
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(flushNow, AUTO_FLUSH_RETRY_DELAY_MS);
+      return;
+    }
+    dirty = false;
+    firstDirtyAt = undefined;
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+
+  const onWrite = (): void => {
+    dirty = true;
+    if (firstDirtyAt === undefined) firstDirtyAt = Date.now();
+    if (timer) clearTimeout(timer);
+
+    const elapsed = Date.now() - firstDirtyAt;
+    const delay = Math.min(AUTO_FLUSH_DEBOUNCE_MS, Math.max(0, AUTO_FLUSH_MAX_DELAY_MS - elapsed));
+    timer = setTimeout(flushNow, delay);
+  };
+
+  // Flush on the way out too, whether close() is called directly (tests,
+  // the CLI's own explicit paths added in Task 6) or the process exits —
+  // this is a best-effort belt-and-braces flush; Task 6 adds the real
+  // guaranteed shutdown flush via SIGINT/SIGTERM and the CLI's own flows.
+  const originalClose = db.close.bind(db);
+  db.close = ((...args: Parameters<typeof db.close>) => {
+    // flushNow() already swallows flush failures, but this second boundary is
+    // deliberate: close() must reach originalClose() no matter what. The CLI's
+    // "clear app data" flow calls db.close() before rmDataDir(), so a throw
+    // here would leave the data directory un-wiped after the user typed
+    // DELETE — a worse outcome than a lost final flush.
+    try {
+      flushNow();
+    } catch (err) {
+      console.error(`Failed to flush the encrypted database at ${databasePath} while closing it.`, err);
+    }
+    // Past this point nothing may schedule another flush: the underlying
+    // handle is about to go away, so a retry timer left armed would fire
+    // db.serialize() against a closed database and throw from inside a timer
+    // callback — an uncaught exception that kills the process.
+    closed = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    return originalClose(...args);
+  }) as typeof db.close;
+
+  interceptWrites(db, onWrite);
+}
+
+function interceptWrites(db: AppDatabase, onWrite: () => void): void {
+  // Shared between prepare() and query(): both return a Statement whose own
+  // .run() performs a write, and both need the exact same "call through,
+  // then mark dirty" wrapping — a caller that reaches for db.query(sql).run()
+  // instead of db.prepare(sql).run() must be tracked identically, not
+  // silently skipped.
+  //
+  // Tracked in a WeakSet because bun:sqlite caches prepared statements by SQL
+  // text — db.query(sql) hands back the *same* Statement object every time it
+  // is called with the same SQL. Without this check each call wrapped the
+  // already-wrapped run(), nesting one closure deeper every time: onWrite()
+  // fired once per layer, and around 17k identical calls the call stack
+  // overflowed outright. Wrapping is idempotent now, and a statement's run()
+  // stays the same function reference across repeat lookups.
+  const wrappedStatements = new WeakSet<object>();
+
+  const wrapStatementRun = <S extends { run: (...args: any[]) => unknown }>(stmt: S): S => {
+    if (wrappedStatements.has(stmt)) return stmt;
+    wrappedStatements.add(stmt);
+
+    const originalRun = (stmt.run as (...a: unknown[]) => unknown).bind(stmt);
+    stmt.run = ((...runArgs: unknown[]) => {
+      const result = originalRun(...runArgs);
+      onWrite();
+      return result;
+    }) as S["run"];
+    return stmt;
+  };
+
+  const originalPrepare = db.prepare.bind(db);
+  db.prepare = ((sql: string, ...rest: unknown[]) => {
+    const stmt = (originalPrepare as (...a: unknown[]) => ReturnType<typeof db.prepare>)(sql, ...rest);
+    return wrapStatementRun(stmt);
+  }) as typeof db.prepare;
+
+  const originalQuery = db.query.bind(db);
+  db.query = ((sql: string, ...rest: unknown[]) => {
+    const stmt = (originalQuery as (...a: unknown[]) => ReturnType<typeof db.query>)(sql, ...rest);
+    return wrapStatementRun(stmt);
+  }) as typeof db.query;
+
+  // Shared between the base transaction function and its deferred/
+  // immediate/exclusive variants — each of those independently begins and
+  // commits a transaction (BEGIN DEFERRED/IMMEDIATE/EXCLUSIVE respectively),
+  // so each needs its own "call through, then mark dirty" wrapping, not just
+  // an alias to the base wrapper.
+  const wrapTransactionFn = <F extends (...args: unknown[]) => unknown>(fn: F): F =>
+    ((...args: unknown[]) => {
+      const result = fn(...args);
+      onWrite();
+      return result;
+    }) as F;
+
+  const originalTransaction = db.transaction.bind(db);
+  db.transaction = ((fn: (...args: unknown[]) => unknown) => {
+    const wrapped = originalTransaction(fn);
+    const outer = wrapTransactionFn(wrapped as (...args: unknown[]) => unknown) as typeof wrapped;
+    outer.deferred = wrapTransactionFn(wrapped.deferred);
+    outer.immediate = wrapTransactionFn(wrapped.immediate);
+    outer.exclusive = wrapTransactionFn(wrapped.exclusive);
+    return outer;
+  }) as typeof db.transaction;
+
+  const originalExec = db.exec.bind(db);
+  db.exec = ((sql: string, ...rest: unknown[]) => {
+    const result = (originalExec as (...a: unknown[]) => unknown)(sql, ...rest);
+    onWrite();
+    return result;
+  }) as typeof db.exec;
+
+  // db.run() is a direct-write convenience method distinct from
+  // db.prepare(sql).run() (see bun:sqlite's Database.run) — same
+  // "call through, then mark dirty" wrapping as everything else here.
+  const originalRun = db.run.bind(db);
+  db.run = ((sql: string, ...rest: unknown[]) => {
+    const result = (originalRun as (...a: unknown[]) => unknown)(sql, ...rest);
+    onWrite();
+    return result;
+  }) as typeof db.run;
 }
 
 function runMigrations(db: AppDatabase): void {

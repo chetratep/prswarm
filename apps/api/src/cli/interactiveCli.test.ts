@@ -97,9 +97,10 @@ describe("runInteractiveCli", () => {
     const app = fakeApp();
     const db = fakeDb();
     const listen = vi.fn().mockResolvedValue(app);
+    const flushNow = vi.fn();
     const { exit } = fakeExit();
 
-    const run = start({ dataDir: tempDir, db, listen, input, output, exit });
+    const run = start({ dataDir: tempDir, db, listen, flushNow, input, output, exit });
     await type(input, ""); // accept default port 3000
     await type(input, "x"); // exit
 
@@ -108,6 +109,7 @@ describe("runInteractiveCli", () => {
     expect(readLastUsedPort(tempDir)).toBe(3000);
     expect(app.close).toHaveBeenCalled();
     expect(db.close).toHaveBeenCalled();
+    expect(flushNow).toHaveBeenCalled();
   });
 
   it("uses the last-used port as the new default", async () => {
@@ -232,12 +234,14 @@ describe("runInteractiveCli", () => {
     const db = fakeDb();
     const listen = vi.fn().mockResolvedValue(app);
     const spawnRestart = vi.fn();
+    const flushNow = vi.fn();
     const { exit } = fakeExit();
 
     const run = start({
       dataDir: tempDir,
       db,
       listen,
+      flushNow,
       input,
       output,
       spawnRestart,
@@ -250,6 +254,7 @@ describe("runInteractiveCli", () => {
     await expectExit(run, 0);
     expect(app.close).toHaveBeenCalled();
     expect(db.close).toHaveBeenCalled();
+    expect(flushNow).toHaveBeenCalled();
     expect(spawnRestart).toHaveBeenCalledWith(4000);
   });
 
@@ -280,6 +285,7 @@ describe("runInteractiveCli", () => {
   it("clearing app data requires typing DELETE exactly, and does nothing otherwise", async () => {
     const { input, output } = makeIo();
     const rmDataDir = vi.fn();
+    const deleteKeychainKey = vi.fn(() => true);
     const listen = vi.fn().mockResolvedValue(fakeApp());
     const { exit } = fakeExit();
 
@@ -290,6 +296,7 @@ describe("runInteractiveCli", () => {
       input,
       output,
       rmDataDir,
+      deleteKeychainKey,
       exit,
     });
     await type(input, "3000");
@@ -299,13 +306,18 @@ describe("runInteractiveCli", () => {
 
     await expectExit(run, 0);
     expect(rmDataDir).not.toHaveBeenCalled();
+    expect(deleteKeychainKey).not.toHaveBeenCalled();
   });
 
-  it("clearing app data with DELETE closes app/db and wipes the data dir", async () => {
+  it("clearing app data with DELETE closes app/db, wipes the data dir, and removes the keychain-stored encryption key", async () => {
     const { input, output } = makeIo();
     const app = fakeApp();
     const db = fakeDb();
     const rmDataDir = vi.fn();
+    // Injected, not defaulted: the real implementation would delete this
+    // machine's actual Credential Manager/Keychain entry.
+    const deleteKeychainKey = vi.fn(() => true);
+    const flushNow = vi.fn();
     const listen = vi.fn().mockResolvedValue(app);
     const { exit } = fakeExit();
 
@@ -313,9 +325,11 @@ describe("runInteractiveCli", () => {
       dataDir: tempDir,
       db,
       listen,
+      flushNow,
       input,
       output,
       rmDataDir,
+      deleteKeychainKey,
       exit,
     });
     await type(input, "3000");
@@ -326,6 +340,12 @@ describe("runInteractiveCli", () => {
     expect(app.close).toHaveBeenCalled();
     expect(db.close).toHaveBeenCalled();
     expect(rmDataDir).toHaveBeenCalledWith(tempDir);
+    // The confirmation prompt promises the encryption key goes too, and on a
+    // desktop install it lives in the OS keychain rather than under dataDir —
+    // so rmDataDir alone would leave the promise unkept and a live secret
+    // behind.
+    expect(deleteKeychainKey).toHaveBeenCalled();
+    expect(flushNow).not.toHaveBeenCalled();
   });
 
   it("ignores an unrecognized menu choice and keeps prompting", async () => {

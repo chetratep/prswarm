@@ -49,9 +49,13 @@ a raw kill).
   either one reflects what the other set. If `SLACK_WEBHOOK_URL` is set
   as an environment variable, this tells you that instead of prompting,
   since the env var always takes precedence.
-- **Clear app data** deletes the database, encryption key, and saved
-  preferences (including anything configured via the option above).
-  Requires typing `DELETE` to confirm; there's no undo.
+- **Clear app data** deletes everything in the data directory — the
+  encrypted database and saved preferences, including anything configured
+  via the option above — *and* removes the encryption key from your OS
+  keychain, since on a desktop install that's where it lives rather than
+  in the data directory. Requires typing `DELETE` to confirm; there's no
+  undo, and without the key a copy of the database file is unreadable
+  anyway.
 - **Exit** shuts down cleanly.
 
 Colors respect `NO_COLOR` and disable automatically when output isn't a

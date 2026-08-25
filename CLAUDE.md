@@ -52,6 +52,21 @@ Local setup: `cp .env.example .env` (`ENCRYPTION_KEY` is optional — auto-gener
 
 Path-scoped conventions for the GitHub integration layer, the data model/migrations, and the frontend editor live in `.claude/rules/` and load automatically when you touch the matching files — check there rather than re-deriving them.
 
+## Encrypted database at rest
+
+`app.db` is never plaintext SQLite on disk any more. `bun:sqlite` stays exactly as it was for querying (no driver swap, no native addon — SQLCipher-style drivers were explicitly rejected for `bun build --compile` bundling risk, same reasoning as the Bun migration): the working database is loaded into memory via `Database.deserialize()` and only ever written back as an AES-256-GCM blob. Every file under `repositories/*.ts` is untouched — `openDatabase()` is the single integration point.
+
+- **`encryptedStore.ts`** — `loadEncryptedDatabase()` (four branches: absent → fresh `:memory:`; encrypted → decrypt + deserialize; wrong key → **fail fast**, never a silent empty DB; legacy plaintext → one-time transparent migration), `flush()` (serialize → encrypt → temp file → fsync → rename, so an interrupted write leaves the previous complete file rather than a torn one), `finalizeLegacyMigration()`, `cleanupStaleTempFiles()`.
+- **`db.ts`** — wires all of that through `openDatabase()`, monkey-patches the returned `Database`'s `prepare`/`query`/`run`/`exec`/`transaction`/`close` to mark the store dirty, and flushes on a 500ms debounce with a 5s max-delay cap. **`PRAGMA journal_mode = WAL` is gone** — nothing writes SQLite's own on-disk format any more, and WAL's journal would have been plaintext.
+- **Key management** — precedence is env → **OS keychain** → key file → generate. `keychain.ts` shells out to each OS's own tool with no third-party dependency (macOS `security`, Windows Credential Manager via a PowerShell `CredRead`/`CredWrite`/`CredDelete` helper script invoked with `-File` *and* `-ExecutionPolicy Bypass` — both learned the hard way, see the comments there; Linux `secret-tool`, absent on headless/Docker). Every function degrades to undefined/false rather than throwing, so a headless box falls straight through to the file/env source.
+- **Two things that are now permanent and were made loud on purpose.** (1) Key loss = total data loss, so `assertEncryptionKeyAvailableFor()` (`crypto.ts`) refuses to generate-and-persist a replacement key whenever an already-*encrypted* database exists and no key can be found anywhere — because keychain reads fail closed by design, and persisting a generated key overwrites in place, one keychain hiccup would otherwise orphan the database irreversibly. A *legacy plaintext* database is exempt: that's the migration case, and it legitimately needs a fresh key. (2) Flush failures never crash the process — they log, keep the store dirty, and retry (spec-mandated), with `db.close()` and the SIGINT/SIGTERM handlers each having their own boundary so a failing flush can't block a clean shutdown or the CLI's `rmDataDir()`.
+- **Upgrading users** get the plaintext `app.db-wal`/`app.db-shm` sidecars deleted after the first successful encrypted flush — the pre-encryption WAL file genuinely held recoverable usernames and password hashes, and migration rewriting `app.db` alone left them beside it forever.
+- **"Clear app data"** now also removes the keychain entry, since on a desktop install the key doesn't live under `dataDir` at all and the confirmation prompt claimed otherwise.
+
+Out of scope by decision: key rotation, KMS/remote key custody (deferred, not rejected — it's the only approach that survives full local-disk compromise, but it adds a mandatory network dependency to a zero-config tool), audit logging, and code-signing the release binaries so keychain entries could be ACL'd to this exact binary (the known gap that keeps same-user malware in scope).
+
+Known gap, not yet fixed: under a *sustained* flush failure (e.g. disk stays full through an entire job run), the retry backoff above stops actually backing off — every write during the outage triggers an immediate full flush attempt instead of one every ~2s. CPU/IO/log noise, not data loss (confirmed the on-disk file stays correct throughout) — a small, understood fix, just not applied yet.
+
 ## Tech stack
 
 | Layer | Choice |
@@ -59,11 +74,13 @@ Path-scoped conventions for the GitHub integration layer, the data model/migrati
 | Frontend | React + TypeScript, Vite, TanStack Query, CodeMirror 6, Radix/shadcn |
 | Backend | Bun + TypeScript (Fastify), Octokit.js (REST + GitHub App JWT/installation tokens) |
 | Queue | In-process, concurrency-limited (`p-limit`) — no Redis |
-| Datastore | SQLite via `bun:sqlite` only — no Postgres, one file holds everything |
+| Datastore | SQLite via `bun:sqlite` only — no Postgres, no extra dependency at all — one file holds everything. **Encrypted at rest as a whole file** (AES-256-GCM): the working database lives in memory and only reaches disk as ciphertext, written atomically — the file is never plaintext SQLite. See "Encrypted database at rest" above. |
 | Realtime | Server-sent events for job progress — not WebSocket |
-| Secrets | Envelope-encrypted PAT/PEM at rest, decrypted only inside the GitHub integration layer, never sent to the browser after entry |
+| Secrets | One 32-byte key covers both the whole-file database encryption and the envelope-encrypted PAT/PEM column inside it (kept as additive defense-in-depth, not replaced). Resolved env → **OS keychain** → key file → generate; decrypted only inside the GitHub integration layer, never sent to the browser after entry |
 
 Known tradeoff: the in-process queue means job state doesn't survive a killed process mid-run — a crashed job falls back to "retry failed only," not seamless resume. Accepted for on-demand, self-hosted usage rather than an always-on multi-tenant service.
+
+Second known tradeoff, new with whole-file encryption: **one process per database file.** Two instances against one `DATABASE_PATH` used to be arbitrated by SQLite's own file locking; now each holds a private in-memory copy and each flush rewrites the entire file, so the second flush silently discards everything the first instance wrote. Documented in `db.ts` (see the SINGLE INSTANCE PER DATABASE PATH note) rather than defended against — it matches the app's existing single-process architecture, and it was never a supported configuration, it just used to fail visibly.
 
 ## Repo layout
 
