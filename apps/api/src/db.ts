@@ -19,7 +19,13 @@
 // (see wireAutoFlush below) rather than after every single write.
 import { Database } from "bun:sqlite";
 import { assertEncryptionKeyAvailableFor } from "./crypto.js";
-import { cleanupStaleTempFiles, flush, loadEncryptedDatabase } from "./encryptedStore.js";
+import { classifyDatabaseFile } from "./databaseFormat.js";
+import {
+  cleanupStaleTempFiles,
+  finalizeLegacyMigration,
+  flush,
+  loadEncryptedDatabase,
+} from "./encryptedStore.js";
 
 export type AppDatabase = Database;
 
@@ -43,6 +49,9 @@ export function openDatabase(databasePath: string): AppDatabase {
 
   cleanupStaleTempFiles(databasePath);
 
+  // Checked before the load, because loading is what changes the answer.
+  const wasLegacyPlaintext = classifyDatabaseFile(databasePath) === "legacy-plaintext";
+
   const db = loadEncryptedDatabase(databasePath);
   db.exec("PRAGMA foreign_keys = ON;");
   // No WAL pragma: nothing writes SQLite's native on-disk format directly
@@ -56,6 +65,15 @@ export function openDatabase(databasePath: string): AppDatabase {
   // or a legacy-plaintext migration, rather than waiting for the first
   // real write's debounced flush.
   flush(db, databasePath);
+
+  // Strictly after the flush above: that call is what replaced the plaintext
+  // file with ciphertext, and only once it has succeeded are the pre-upgrade
+  // plaintext -wal/-shm sidecars safe (and necessary) to delete. If flush
+  // threw, this is skipped and openDatabase fails outright, leaving the whole
+  // pre-upgrade file set intact for a retry.
+  if (wasLegacyPlaintext) {
+    finalizeLegacyMigration(databasePath);
+  }
 
   wireAutoFlush(db, databasePath);
 

@@ -138,6 +138,44 @@ export function flush(db: Database, databasePath: string): void {
   fs.renameSync(tmpPath, databasePath);
 }
 
+/**
+ * Closes out a one-time legacy-plaintext migration, once the flush that
+ * actually wrote the encrypted format has succeeded.
+ *
+ * The `-wal`/`-shm` sidecars are the whole reason this isn't just a log line.
+ * A pre-encryption instance ran in WAL mode (see db.ts), so upgrading users
+ * have plaintext `app.db-wal`/`app.db-shm` files sitting next to the database
+ * — and migration only rewrites `app.db` itself. Left alone they survive
+ * forever, still holding readable rows (usernames, password hashes) from
+ * before the upgrade, quietly defeating the point of encrypting at rest for
+ * exactly the users who had data worth protecting. Nothing reads them after
+ * migration: the working database lives in memory and only ever reaches disk
+ * through flush().
+ *
+ * Must be called only after that flush succeeded — never before. If the flush
+ * failed, `app.db` is still the pre-upgrade plaintext file and these sidecars
+ * may still hold committed-but-uncheckpointed rows that the next attempt
+ * needs.
+ */
+export function finalizeLegacyMigration(databasePath: string): void {
+  console.log("Encrypted existing database at rest for the first time.");
+
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecarPath = `${databasePath}${suffix}`;
+    try {
+      fs.rmSync(sidecarPath, { force: true });
+    } catch (err) {
+      // Loud rather than silent: what's left behind is plaintext user data.
+      console.error(
+        `Could not delete ${sidecarPath}, left over from the pre-encryption database. It still ` +
+          "contains readable data from before the upgrade and nothing reads it any more — delete it " +
+          "manually once no process is holding it open.",
+        err
+      );
+    }
+  }
+}
+
 export function cleanupStaleTempFiles(databasePath: string): void {
   const dir = path.dirname(databasePath);
   if (!fs.existsSync(dir)) return;

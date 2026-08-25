@@ -228,6 +228,84 @@ describe("openDatabase auto-flush debounce", () => {
   });
 });
 
+/**
+ * Creates a pre-encryption plaintext WAL database at `dbPath` from a *child*
+ * process that exits without closing it — the only way to end up with the
+ * sidecar files a real upgrading user has. A clean `.close()` triggers
+ * SQLite's checkpoint-and-delete, removing the very files under test, and
+ * simply leaving the connection open in *this* process would hold OS handles
+ * that don't exist in the real scenario (where the pre-upgrade process is
+ * long gone). Returns once the child has exited.
+ */
+function createAbandonedLegacyWalDatabase(dbPath: string, value: string): void {
+  const scriptPath = path.join(path.dirname(dbPath), "seed-legacy.ts");
+  fs.writeFileSync(
+    scriptPath,
+    [
+      'import { Database } from "bun:sqlite";',
+      "const db = new Database(process.argv[2]);",
+      'db.exec("PRAGMA journal_mode = WAL");',
+      'db.exec("CREATE TABLE legacy (secret TEXT)");',
+      'db.prepare("INSERT INTO legacy VALUES (?)").run(process.argv[3]);',
+      "process.exit(0);",
+    ].join("\n"),
+    "utf8"
+  );
+  const result = Bun.spawnSync([process.execPath, scriptPath, dbPath, value]);
+  fs.rmSync(scriptPath, { force: true });
+  if (result.exitCode !== 0) {
+    throw new Error(`legacy seed process failed: ${result.stderr?.toString("utf8")}`);
+  }
+}
+
+describe("openDatabase legacy plaintext migration", () => {
+  it("deletes the pre-upgrade plaintext -wal/-shm sidecars once the first encrypted flush succeeds", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    createAbandonedLegacyWalDatabase(dbPath, "recoverable-from-plaintext-wal");
+
+    // Precondition: the sidecars exist and really do hold the plaintext.
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(true);
+    expect(fs.readFileSync(`${dbPath}-wal`).includes("recoverable-from-plaintext-wal")).toBe(true);
+
+    db = openDatabase(dbPath);
+
+    // The migration itself worked...
+    expect(db.prepare("SELECT secret FROM legacy").get()).toEqual({
+      secret: "recoverable-from-plaintext-wal",
+    });
+    // ...and left no plaintext behind next to the now-encrypted database.
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(fs.existsSync(`${dbPath}-shm`)).toBe(false);
+    expect(fs.readFileSync(dbPath).subarray(0, 16).toString("utf8")).not.toBe("SQLite format 3\0");
+  });
+
+  it("keeps the sidecars when the migration's first flush fails, so a retry can still recover them", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    createAbandonedLegacyWalDatabase(dbPath, "still-needed-after-a-failed-flush");
+
+    const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw new Error("ENOSPC: no space left on device");
+    });
+    try {
+      expect(() => openDatabase(dbPath)).toThrow(/ENOSPC/);
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    // Nothing was deleted: app.db is still the untouched plaintext original,
+    // and the WAL frames it needs are still beside it.
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(true);
+    expect(fs.readFileSync(dbPath).subarray(0, 16).toString("utf8")).toBe("SQLite format 3\0");
+
+    // And the retry, once the disk is writable again, still recovers the data.
+    db = openDatabase(dbPath);
+    expect(db.prepare("SELECT secret FROM legacy").get()).toEqual({
+      secret: "still-needed-after-a-failed-flush",
+    });
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(false);
+  });
+});
+
 describe("openDatabase flush failure handling", () => {
   // flush() is made to fail by way of fs.renameSync — the last step of its
   // temp-write/fsync/rename sequence, and the one most likely to fail for
