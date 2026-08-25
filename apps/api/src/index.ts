@@ -155,13 +155,33 @@ async function main(): Promise<void> {
 
   const db = openDatabase(databasePath);
 
+  // A final flush is best-effort by definition: the process is on its way out
+  // either way, so a failure here (disk full, an AV/backup lock on the target
+  // path) must be reported and moved past, never allowed to turn a clean stop
+  // into an uncaught-exception crash that skips the rest of the shutdown.
+  // flush() writes to a temp file and renames, so a failure leaves the
+  // existing on-disk database intact — the cost is the last few seconds of
+  // writes, not corruption.
+  const safeFinalFlush = (): void => {
+    try {
+      flush(db, databasePath);
+    } catch (err) {
+      console.error(
+        `Failed to write the encrypted database to ${databasePath} during shutdown. ` +
+          "The existing file on disk is unchanged, but changes made since the last successful " +
+          "flush are lost.",
+        err
+      );
+    }
+  };
+
   // Guaranteed final flush on an OS-level stop (Ctrl+C, `docker stop`,
   // `systemctl stop`) — the debounced auto-flush inside openDatabase()
   // already covers steady-state writes, but a signal can arrive mid-debounce
   // window, and this makes sure that last write isn't lost.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      flush(db, databasePath);
+      safeFinalFlush();
       process.exit(0);
     });
   }
@@ -191,7 +211,7 @@ async function main(): Promise<void> {
       db,
       listen: (port) => buildAndListen(db, authEnabled, port),
       initialPort: cliArgs.port ?? envPort,
-      flushNow: () => flush(db, databasePath),
+      flushNow: safeFinalFlush,
     });
     return;
   }

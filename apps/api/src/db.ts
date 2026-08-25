@@ -24,6 +24,12 @@ export type AppDatabase = Database;
 
 const AUTO_FLUSH_DEBOUNCE_MS = 500;
 const AUTO_FLUSH_MAX_DELAY_MS = 5000;
+// How long to wait before re-attempting a flush that failed (disk full, an
+// antivirus/backup process holding a transient lock on the target path, a
+// permissions blip). Deliberately longer than the debounce window: a failing
+// flush is retried until it succeeds, and retrying every 500ms would just
+// spin the CPU and spam stderr while, say, a full disk stays full.
+const AUTO_FLUSH_RETRY_DELAY_MS = 2000;
 
 export function openDatabase(databasePath: string): AppDatabase {
   cleanupStaleTempFiles(databasePath);
@@ -51,10 +57,31 @@ function wireAutoFlush(db: AppDatabase, databasePath: string): void {
   let dirty = false;
   let firstDirtyAt: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
 
   const flushNow = (): void => {
-    if (!dirty) return;
-    flush(db, databasePath);
+    if (!dirty || closed) return;
+    try {
+      flush(db, databasePath);
+    } catch (err) {
+      // A failed flush must never take the process down or drop the pending
+      // writes: the in-memory database is still the authoritative copy, and
+      // the on-disk file is still the last complete, decryptable snapshot
+      // (flush() writes to a temp file and renames, so a failure anywhere in
+      // it leaves the existing file untouched). Keep `dirty` set — and
+      // `firstDirtyAt` unchanged, so the 5s max-delay cap still measures from
+      // the *original* write — and re-arm a timer so the next attempt happens
+      // on its own rather than waiting for the next incidental write.
+      console.error(
+        `Failed to write the encrypted database to ${databasePath}. The pending changes are still ` +
+          `held in memory and the existing file on disk is unchanged; retrying in ` +
+          `${AUTO_FLUSH_RETRY_DELAY_MS}ms.`,
+        err
+      );
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(flushNow, AUTO_FLUSH_RETRY_DELAY_MS);
+      return;
+    }
     dirty = false;
     firstDirtyAt = undefined;
     if (timer) {
@@ -79,7 +106,25 @@ function wireAutoFlush(db: AppDatabase, databasePath: string): void {
   // guaranteed shutdown flush via SIGINT/SIGTERM and the CLI's own flows.
   const originalClose = db.close.bind(db);
   db.close = ((...args: Parameters<typeof db.close>) => {
-    flushNow();
+    // flushNow() already swallows flush failures, but this second boundary is
+    // deliberate: close() must reach originalClose() no matter what. The CLI's
+    // "clear app data" flow calls db.close() before rmDataDir(), so a throw
+    // here would leave the data directory un-wiped after the user typed
+    // DELETE — a worse outcome than a lost final flush.
+    try {
+      flushNow();
+    } catch (err) {
+      console.error(`Failed to flush the encrypted database at ${databasePath} while closing it.`, err);
+    }
+    // Past this point nothing may schedule another flush: the underlying
+    // handle is about to go away, so a retry timer left armed would fire
+    // db.serialize() against a closed database and throw from inside a timer
+    // callback — an uncaught exception that kills the process.
+    closed = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
     return originalClose(...args);
   }) as typeof db.close;
 

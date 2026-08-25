@@ -228,6 +228,97 @@ describe("openDatabase auto-flush debounce", () => {
   });
 });
 
+describe("openDatabase flush failure handling", () => {
+  // flush() is made to fail by way of fs.renameSync — the last step of its
+  // temp-write/fsync/rename sequence, and the one most likely to fail for
+  // real (an antivirus scanner, a backup agent or a search indexer holding a
+  // transient handle on the target path produces exactly this on Windows).
+  // Spying on encryptedStore's own exported flush() isn't an option here —
+  // ESM export bindings aren't reliably spy-able — so the failure is injected
+  // one layer down, which also exercises the real flush() code path rather
+  // than replacing it.
+
+  it("does not crash and retries when a debounced flush fails, eventually persisting the write", () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let renameSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      const afterOpen = fs.readFileSync(dbPath);
+
+      // Installed only after openDatabase's own startup flush, so the single
+      // scripted failure lands on the *debounced* flush under test.
+      renameSpy = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+        throw new Error("EPERM: simulated antivirus lock on the database file");
+      });
+
+      insertConnectionRow("id-flush-fail-1");
+
+      // The debounced flush fires inside a timer callback: an unhandled throw
+      // here is an uncaught exception that takes the whole process down.
+      expect(() => vi.advanceTimersByTime(600)).not.toThrow();
+      expect(errorSpy).toHaveBeenCalled();
+      // Nothing was written, and — crucially — the previous complete file is
+      // still exactly as it was.
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(true);
+
+      // The store stayed dirty and re-armed a retry, so the write reaches
+      // disk on the next attempt without needing another incidental write.
+      vi.advanceTimersByTime(2100);
+      expect(fs.readFileSync(dbPath).equals(afterOpen)).toBe(false);
+
+      renameSpy.mockRestore();
+      renameSpy = undefined;
+      db.close();
+      db = undefined;
+
+      const reopened = openDatabase(dbPath);
+      expect(reopened.prepare("SELECT * FROM connections WHERE id = ?").get("id-flush-fail-1")).toBeTruthy();
+      reopened.close();
+    } finally {
+      renameSpy?.mockRestore();
+      errorSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("still closes the database when the flush on close fails, and leaves no retry timer armed", () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let renameSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+      insertConnectionRow("id-close-fail-1");
+
+      renameSpy = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+        throw new Error("ENOSPC: no space left on device");
+      });
+
+      // A throw here would block originalClose() — and, via the CLI's
+      // "clear app data" flow, would stop rmDataDir() from ever running.
+      expect(() => db!.close()).not.toThrow();
+      expect(errorSpy).toHaveBeenCalled();
+
+      // The underlying handle really was closed, not just skipped over.
+      expect(() => db!.prepare("SELECT 1").get()).toThrow();
+
+      // No retry timer may survive the close: it would call serialize() on a
+      // closed database from inside a timer callback and crash the process.
+      const renameCallsAtClose = renameSpy.mock.calls.length;
+      expect(() => vi.advanceTimersByTime(10_000)).not.toThrow();
+      expect(renameSpy.mock.calls.length).toBe(renameCallsAtClose);
+
+      db = undefined;
+    } finally {
+      renameSpy?.mockRestore();
+      errorSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("openDatabase write interception", () => {
   it("tracks a write made via db.run() (not just prepare().run()) for auto-flush", () => {
     vi.useFakeTimers();
