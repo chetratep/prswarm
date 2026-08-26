@@ -104,6 +104,9 @@ function wireAutoFlush(db: AppDatabase, databasePath: string): void {
   let firstDirtyAt: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
+  // Set for the duration of a failing flush's retry cycle, cleared the
+  // instant one succeeds. See onWrite() below for why this exists.
+  let flushFailing = false;
 
   const flushNow = (): void => {
     if (!dirty || closed) return;
@@ -124,10 +127,12 @@ function wireAutoFlush(db: AppDatabase, databasePath: string): void {
           `${AUTO_FLUSH_RETRY_DELAY_MS}ms.`,
         err
       );
+      flushFailing = true;
       if (timer) clearTimeout(timer);
       timer = setTimeout(flushNow, AUTO_FLUSH_RETRY_DELAY_MS);
       return;
     }
+    flushFailing = false;
     dirty = false;
     firstDirtyAt = undefined;
     if (timer) {
@@ -139,8 +144,20 @@ function wireAutoFlush(db: AppDatabase, databasePath: string): void {
   const onWrite = (): void => {
     dirty = true;
     if (firstDirtyAt === undefined) firstDirtyAt = Date.now();
-    if (timer) clearTimeout(timer);
 
+    // While a flush is actively failing and retrying, leave that retry timer
+    // alone rather than rescheduling it here. Without this guard, once the
+    // store has been continuously dirty for AUTO_FLUSH_MAX_DELAY_MS, the
+    // debounce math below evaluates to 0 on every subsequent write — turning
+    // the deliberate AUTO_FLUSH_RETRY_DELAY_MS backoff into an immediate
+    // retry on every write, which hammers disk/CPU/stderr during exactly the
+    // degraded conditions (e.g. a full disk through an entire job run) this
+    // backoff exists to survive. The already-armed retry timer keeps firing
+    // on its own schedule; flushNow() clears this flag as soon as one of
+    // those retries succeeds, and normal debounce behavior resumes.
+    if (flushFailing) return;
+
+    if (timer) clearTimeout(timer);
     const elapsed = Date.now() - firstDirtyAt;
     const delay = Math.min(AUTO_FLUSH_DEBOUNCE_MS, Math.max(0, AUTO_FLUSH_MAX_DELAY_MS - elapsed));
     timer = setTimeout(flushNow, delay);

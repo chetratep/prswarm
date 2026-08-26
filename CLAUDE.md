@@ -65,8 +65,6 @@ Path-scoped conventions for the GitHub integration layer, the data model/migrati
 
 Out of scope by decision: key rotation, KMS/remote key custody (deferred, not rejected — it's the only approach that survives full local-disk compromise, but it adds a mandatory network dependency to a zero-config tool), audit logging, and code-signing the release binaries so keychain entries could be ACL'd to this exact binary (the known gap that keeps same-user malware in scope).
 
-Known gap, not yet fixed: under a *sustained* flush failure (e.g. disk stays full through an entire job run), the retry backoff above stops actually backing off — every write during the outage triggers an immediate full flush attempt instead of one every ~2s. CPU/IO/log noise, not data loss (confirmed the on-disk file stays correct throughout) — a small, understood fix, just not applied yet.
-
 ## Tech stack
 
 | Layer | Choice |

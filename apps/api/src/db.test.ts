@@ -361,6 +361,60 @@ describe("openDatabase flush failure handling", () => {
     }
   });
 
+  it("keeps backing off at the retry interval under continuous writes during a sustained flush failure", () => {
+    // Known gap: onWrite() previously rescheduled the timer using the normal
+    // debounce math on every write, even while a retry from a failed flush
+    // was already pending. Since firstDirtyAt doesn't reset on failure (by
+    // design, so the 5s cap still measures from the original write), once
+    // the store had been continuously dirty for AUTO_FLUSH_MAX_DELAY_MS the
+    // debounce math evaluates to 0 — turning every subsequent write during
+    // the outage into an immediate flush attempt instead of respecting the
+    // 2s AUTO_FLUSH_RETRY_DELAY_MS backoff. Not data loss (the on-disk file
+    // stays correct throughout), but exactly the wrong behavior under the
+    // sustained-disk-full-during-a-job-run scenario this backoff exists for.
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let renameSpy: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+      db = openDatabase(dbPath);
+
+      // Every rename fails from here on — a sustained outage (e.g. disk
+      // stays full through an entire job run), not a single transient blip.
+      renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+        throw new Error("ENOSPC: no space left on device");
+      });
+
+      insertConnectionRow("id-sustained-fail-1");
+      vi.advanceTimersByTime(500); // first debounced attempt fires and fails
+      expect(renameSpy.mock.calls.length).toBe(1);
+
+      // Push well past the 5s max-delay mark while writing every 50ms — an
+      // Execute run streaming per-repo progress updates behaves exactly like
+      // this. Snapshot the attempt count right as the 5s boundary is crossed,
+      // then again 6s further in, so the second window is measured entirely
+      // *after* the debounce math would have started evaluating to 0.
+      let elapsedMs = 500;
+      let tick = 0;
+      let attemptsAtFiveSeconds = 0;
+      while (elapsedMs < 11_000) {
+        insertConnectionRow(`id-sustained-fail-tick-${tick++}`);
+        vi.advanceTimersByTime(50);
+        elapsedMs += 50;
+        if (elapsedMs === 5000) attemptsAtFiveSeconds = renameSpy.mock.calls.length;
+      }
+      const attemptsInSecondWindow = renameSpy.mock.calls.length - attemptsAtFiveSeconds;
+
+      // Under the intended ~2s backoff, 6 seconds of sustained failure should
+      // produce on the order of 3 attempts — not one per 50ms write (120).
+      expect(attemptsInSecondWindow).toBeLessThanOrEqual(6);
+    } finally {
+      renameSpy?.mockRestore();
+      errorSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("still closes the database when the flush on close fails, and leaves no retry timer armed", () => {
     vi.useFakeTimers();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
