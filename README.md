@@ -1,5 +1,7 @@
 # PRSwarm
 
+[![CI](https://github.com/chetratep/prswarm/actions/workflows/ci.yml/badge.svg)](https://github.com/chetratep/prswarm/actions/workflows/ci.yml)
+
 Push a file change — or a set of file changes — across a chosen set of
 GitHub orgs/repos, with a reviewed diff per file per repo before anything
 writes. Self-hosted, open source, MIT licensed.

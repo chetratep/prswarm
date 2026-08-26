@@ -4,6 +4,8 @@ sidebar_position: 1
 
 # Introduction
 
+[![CI](https://github.com/chetratep/prswarm/actions/workflows/ci.yml/badge.svg)](https://github.com/chetratep/prswarm/actions/workflows/ci.yml)
+
 PRSwarm pushes one file change — or a set of file changes — across a
 chosen set of GitHub orgs and repos, with a real per-repo diff reviewed
 before anything writes.
