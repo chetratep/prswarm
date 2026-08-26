@@ -24,6 +24,17 @@ jobs:
         with:
           bun-version: latest
 
+      # Caches bun's global install cache (downloaded package tarballs), not
+      # node_modules itself — bun still relinks node_modules from this cache
+      # on every run, which is fast and keeps the frozen-lockfile install
+      # honest. Keyed on bun.lock so a dependency change invalidates it.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck

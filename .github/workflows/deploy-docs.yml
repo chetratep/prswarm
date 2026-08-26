@@ -36,6 +36,13 @@ jobs:
         with:
           bun-version: latest
 
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('website/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
       - name: Install and build
         working-directory: website
         run: |
