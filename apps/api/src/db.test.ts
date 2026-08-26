@@ -230,12 +230,22 @@ describe("openDatabase auto-flush debounce", () => {
 
 /**
  * Creates a pre-encryption plaintext WAL database at `dbPath` from a *child*
- * process that exits without closing it — the only way to end up with the
+ * process that dies without closing it — the only way to end up with the
  * sidecar files a real upgrading user has. A clean `.close()` triggers
  * SQLite's checkpoint-and-delete, removing the very files under test, and
  * simply leaving the connection open in *this* process would hold OS handles
  * that don't exist in the real scenario (where the pre-upgrade process is
  * long gone). Returns once the child has exited.
+ *
+ * The child kills itself with SIGKILL rather than calling `process.exit(0)`:
+ * on Linux (not Windows), bun:sqlite still runs a clean WAL checkpoint during
+ * a graceful exit, silently merging the just-written row into the main file
+ * before the process actually terminates — the abandoned-WAL scenario this
+ * helper exists to create never actually reproduces there. A real SIGKILL
+ * leaves no room for that cleanup to run, on any platform. Because a
+ * killed process never reports a clean exit code (null on POSIX, non-zero on
+ * Windows), success is instead confirmed by an explicit sentinel written to
+ * stdout right before the kill.
  */
 function createAbandonedLegacyWalDatabase(dbPath: string, value: string): void {
   const scriptPath = path.join(path.dirname(dbPath), "seed-legacy.ts");
@@ -247,13 +257,14 @@ function createAbandonedLegacyWalDatabase(dbPath: string, value: string): void {
       'db.exec("PRAGMA journal_mode = WAL");',
       'db.exec("CREATE TABLE legacy (secret TEXT)");',
       'db.prepare("INSERT INTO legacy VALUES (?)").run(process.argv[3]);',
-      "process.exit(0);",
+      'console.log("SEED_OK");',
+      "process.kill(process.pid, 'SIGKILL');",
     ].join("\n"),
     "utf8"
   );
   const result = Bun.spawnSync([process.execPath, scriptPath, dbPath, value]);
   fs.rmSync(scriptPath, { force: true });
-  if (result.exitCode !== 0) {
+  if (!result.stdout?.toString("utf8").includes("SEED_OK")) {
     throw new Error(`legacy seed process failed: ${result.stderr?.toString("utf8")}`);
   }
 }
