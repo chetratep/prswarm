@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Single bun.lock at the repo root covers all three workspace packages
+  # (apps/api, apps/web, packages/shared-types) — one entry is enough.
+  #
+  # Note: Dependabot's security-update path (auto-PR on a known CVE) doesn't
+  # support the bun ecosystem yet, only scheduled version updates. Rely on
+  # the Dependabot alerts tab for CVE notifications instead.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Keeps the SHA-pinned actions in .github/workflows/*.yml current —
+  # opens a PR bumping the pinned commit SHA when a new release exists.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
