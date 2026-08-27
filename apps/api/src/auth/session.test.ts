@@ -117,7 +117,19 @@ describe("cookie session (auth enabled)", () => {
 
     const loginResponse = await app.inject({ method: "POST", url: "/api/login" });
     const cookieHeader = getCookie(loginResponse);
-    const tampered = cookieHeader.slice(0, -1) + (cookieHeader.endsWith("A") ? "B" : "A");
+    // Flip a byte in the middle of the decoded buffer, not a character in
+    // the encoded string. Base64url's last character can carry encoding-
+    // insignificant trailing bits (how many depends on total byte length
+    // mod 3) that a lenient decoder ignores — flipping only the string's
+    // last character landed there ~6% of the time (measured empirically),
+    // silently decoding back to the *same* bytes and making this test flake
+    // in CI. A mid-buffer byte flip is never insignificant.
+    const value = cookieHeader.slice("session=".length);
+    const raw = Buffer.from(value, "base64url");
+    const mutated = Buffer.from(raw);
+    const midIndex = Math.floor(mutated.length / 2);
+    mutated[midIndex] = mutated[midIndex]! ^ 0xff;
+    const tampered = `session=${mutated.toString("base64url")}`;
 
     const sessionResponse = await app.inject({
       method: "GET",

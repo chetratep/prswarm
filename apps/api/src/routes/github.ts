@@ -165,16 +165,31 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
       const octokit = await getOctokitOr400(db, currentUser.userId, reply);
       if (!octokit) return reply;
       const self = await resolveSelf(connectionRow, octokit);
-      allRepos =
-        org === self.login
-          ? await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
-              affiliation: "owner",
-              per_page: 100,
-            })
-          : await octokit.paginate(octokit.rest.repos.listForOrg, {
-              org,
-              per_page: 100,
-            });
+      if (org === self.login) {
+        allRepos = await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
+          affiliation: "owner",
+          per_page: 100,
+        });
+      } else {
+        // This tool exists to push changes — a repo the connected
+        // credential can't push to would just fail at execute time if
+        // selected, so "repos in this org" always means "repos in this org
+        // I can push to", never every repo that merely exists there.
+        // GET /user/repos is scoped to repos this token actually has some
+        // relationship with, across every org and personal account it can
+        // see — for an org where you're a collaborator on a handful of
+        // repos out of hundreds, this returns a small, already-relevant
+        // set instead of paginating the whole org just to throw most of it
+        // away. GitHub has no "repos in org X I'm affiliated with" endpoint
+        // directly, so filter this smaller set by owner afterward instead.
+        const affiliated = await octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
+          affiliation: "collaborator,organization_member",
+          per_page: 100,
+        });
+        allRepos = affiliated.filter(
+          (repo) => repo.owner?.login?.toLowerCase() === org.toLowerCase() && repo.permissions?.push
+        );
+      }
     }
 
     let repos: GitHubRepoSummary[] = allRepos.map((repo) => ({

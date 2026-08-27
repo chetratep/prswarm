@@ -717,4 +717,52 @@ describe("connection_installations table", () => {
         .run()
     ).toThrow(/UNIQUE constraint failed/);
   });
+
+  it("backfills a connection_installations row for a legacy GITHUB_APP connection with none (pre-dates this table)", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    // Simulates a connection created before connection_installations existed
+    // — a real GITHUB_APP row with installation_id/login on the parent row
+    // (the old single-installation shape) and zero child rows.
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('legacy-conn-1', 'user-a', 'GITHUB_APP', 'legacy-org', NULL, 'app-1', '42', 'enc', '2020-01-01T00:00:00.000Z')`
+    ).run();
+    expect(db.prepare("SELECT * FROM connection_installations WHERE connection_id = 'legacy-conn-1'").all()).toHaveLength(0);
+
+    // Reopening re-runs migrations, which must notice this row has no
+    // installations and backfill exactly one from its own parent-row data —
+    // otherwise GET /orgs returns empty for every GitHub App connection
+    // made before this feature shipped.
+    db.close();
+    db = openDatabase(dbPath);
+
+    const backfilled = db
+      .prepare("SELECT * FROM connection_installations WHERE connection_id = 'legacy-conn-1'")
+      .all() as Array<{ installation_id: string; account_login: string }>;
+    expect(backfilled).toHaveLength(1);
+    expect(backfilled[0]?.installation_id).toBe("42");
+    expect(backfilled[0]?.account_login).toBe("legacy-org");
+  });
+
+  it("does not duplicate installations for a connection that already has them (idempotent across reopens)", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('conn-1', 'user-a', 'GITHUB_APP', 'org-a', NULL, 'app-1', '10', 'enc', '2026-01-01T00:00:00.000Z')`
+    ).run();
+    db.prepare(
+      `INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+       VALUES ('ci-1', 'conn-1', '10', 'org-a', 'Organization', 'https://example.com/a.png')`
+    ).run();
+
+    db.close();
+    db = openDatabase(dbPath);
+
+    const rows = db.prepare("SELECT * FROM connection_installations WHERE connection_id = 'conn-1'").all();
+    expect(rows).toHaveLength(1);
+  });
 });

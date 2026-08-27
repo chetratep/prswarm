@@ -8,7 +8,8 @@ import type {
   ListGithubAppInstallationsResponse,
 } from "@prswarm/shared-types";
 import { apiDelete, apiGet, apiPost } from "../api/client";
-import { IconCheckCircle, IconKey, IconPlug, IconTrash } from "../components/icons";
+import { IconCheckCircle, IconKey, IconPlug, IconPlusCircle, IconTrash } from "../components/icons";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -164,98 +165,158 @@ export function ConnectPage() {
   const activeConnection = connections.find((c) => c.active) ?? null;
 
   if (connections.length > 0 && !showReconnectForm) {
+    const missingMethod: ConnectMethod | null =
+      connections.length < 2 ? (connections.some((c) => c.type === "PAT") ? "GITHUB_APP" : "PAT") : null;
+    const pendingDeleteConnection = connections.find((c) => c.id === pendingDeleteId) ?? null;
+
+    function openConnectForm(forMethod: ConnectMethod) {
+      setMethod(forMethod);
+      saveLastMethod(forMethod);
+      setShowReconnectForm(true);
+    }
+
     return (
       <div className="page">
         <h2>Connect</h2>
-        {connections.map((connection) => (
-          <div key={connection.id} className="connected-card">
-            <p className="connected-card__status">
-              {connection.active ? (
-                <>
-                  <IconCheckCircle size={17} />
-                  In use
-                </>
-              ) : (
-                "Saved, not in use"
-              )}
-            </p>
-            <p>
-              <strong>{connection.login ?? "(no login)"}</strong>{" "}
-              <span className="badge">{connection.type}</span>
-              {connection.host && <span className="badge badge--muted">{connection.host}</span>}
-            </p>
-            <p className="connected-card__meta">
-              Connection ID: <code>{connection.id}</code>
-            </p>
-            {connection.type === "GITHUB_APP" && (connection.installations?.length ?? 0) > 1 && (
-              <p className="connected-card__meta">
-                Connected to {connection.installations?.length} installations
-              </p>
-            )}
-            <div className="connected-card__actions">
-              {connection.active ? (
-                <Button asChild>
-                  <Link to="/select">Continue to select repos</Link>
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  disabled={activateMutation.isPending}
-                  onClick={() => activateMutation.mutate(connection.id)}
-                >
-                  {activateMutation.isPending ? "Activating…" : "Use this connection"}
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="link"
-                className="text-destructive h-auto p-0"
-                onClick={() => setPendingDeleteId(connection.id)}
-              >
-                <IconTrash size={14} />
-                Remove
-              </Button>
-            </div>
+        <p className="page__intro">
+          Pick which credential PRSwarm uses right now. Switching is instant — the one you're not
+          using stays saved.
+        </p>
 
-            {pendingDeleteId === connection.id && (
-              <div className="disconnect-confirm">
-                <p>
-                  This forgets the stored credential on this instance — it doesn't revoke it on
-                  GitHub. You'll need to reconnect before using it again.
-                </p>
-                {deleteMutation.isError && (
-                  <p className="form__error" role="alert">
-                    {deleteMutation.error instanceof Error
-                      ? deleteMutation.error.message
-                      : "Failed to remove."}
-                  </p>
+        <div
+          className="grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2"
+          role="radiogroup"
+          aria-label="Active GitHub connection"
+        >
+          {connections.map((connection) => {
+            const isPending = activateMutation.isPending && activateMutation.variables === connection.id;
+            return (
+              <div
+                key={connection.id}
+                role="radio"
+                aria-checked={connection.active}
+                tabIndex={0}
+                className={cn(
+                  "relative flex cursor-pointer flex-col gap-2.5 rounded-xl border bg-card p-4 shadow-sm transition-all",
+                  connection.active
+                    ? "border-link ring-1 ring-link"
+                    : "border-border hover:border-muted-foreground/40",
+                  isPending && "cursor-wait opacity-70"
                 )}
-                <div className="disconnect-confirm__actions">
+                onClick={() => {
+                  if (!connection.active && !activateMutation.isPending) activateMutation.mutate(connection.id);
+                }}
+                onKeyDown={(event) => {
+                  if ((event.key === "Enter" || event.key === " ") && !connection.active && !activateMutation.isPending) {
+                    event.preventDefault();
+                    activateMutation.mutate(connection.id);
+                  }
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "flex size-7 shrink-0 items-center justify-center rounded-full",
+                      connection.active ? "bg-link/10 text-link" : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {connection.type === "PAT" ? <IconKey size={15} /> : <IconPlug size={15} />}
+                  </span>
+                  <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    {connection.type === "PAT" ? "Personal access token" : "GitHub App"}
+                  </span>
+                  {connection.active && (
+                    <span className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-full bg-link text-white">
+                      <IconCheckCircle size={12} />
+                    </span>
+                  )}
+                </div>
+
+                <p className="truncate text-base font-semibold text-foreground">
+                  {connection.login ?? "(no login)"}
+                </p>
+
+                {(connection.host || (connection.installations?.length ?? 0) > 1) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {connection.host && <span className="badge badge--muted">{connection.host}</span>}
+                    {connection.type === "GITHUB_APP" && (connection.installations?.length ?? 0) > 1 && (
+                      <span className="badge badge--muted">
+                        {connection.installations?.length} installations
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-auto flex items-center justify-between pt-1">
+                  <span className={cn("text-xs", connection.active ? "font-medium text-link" : "text-muted-foreground")}>
+                    {isPending ? "Switching…" : connection.active ? "In use" : "Tap to switch to this"}
+                  </span>
                   <Button
                     type="button"
-                    variant="destructive"
-                    disabled={deleteMutation.isPending}
-                    onClick={() => deleteMutation.mutate(connection.id)}
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove this ${connection.type === "PAT" ? "personal access token" : "GitHub App"} connection`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPendingDeleteId(connection.id);
+                    }}
                   >
-                    {deleteMutation.isPending ? "Removing…" : "Yes, remove"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="text-link h-auto p-0"
-                    onClick={() => setPendingDeleteId(null)}
-                  >
-                    Cancel
+                    <IconTrash size={13} />
                   </Button>
                 </div>
               </div>
-            )}
-          </div>
-        ))}
+            );
+          })}
 
-        {connections.length < 2 && (
-          <Button type="button" variant="outline" onClick={() => setShowReconnectForm(true)}>
-            Connect {connections.some((c) => c.type === "PAT") ? "GitHub App" : "another credential"}
+          {missingMethod && (
+            <button
+              type="button"
+              className="flex min-h-[7.5rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
+              onClick={() => openConnectForm(missingMethod)}
+            >
+              <IconPlusCircle size={20} />
+              <span>Add {missingMethod === "PAT" ? "personal access token" : "GitHub App"}</span>
+            </button>
+          )}
+        </div>
+
+        {pendingDeleteConnection && (
+          <div className="disconnect-confirm">
+            <p>
+              This forgets the stored {pendingDeleteConnection.type === "PAT" ? "token" : "private key"} on
+              this instance — it doesn't revoke it on GitHub. You'll need to reconnect before using it
+              again.
+            </p>
+            {deleteMutation.isError && (
+              <p className="form__error" role="alert">
+                {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to remove."}
+              </p>
+            )}
+            <div className="disconnect-confirm__actions">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(pendingDeleteConnection.id)}
+              >
+                {deleteMutation.isPending ? "Removing…" : "Yes, remove"}
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                className="text-link h-auto p-0"
+                onClick={() => setPendingDeleteId(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {activeConnection && (
+          <Button asChild size="lg" className="mt-4">
+            <Link to="/select">Continue to select repos</Link>
           </Button>
         )}
       </div>

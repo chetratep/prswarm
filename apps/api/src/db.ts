@@ -466,6 +466,33 @@ function runMigrations(db: AppDatabase): void {
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_connection_installations_unique ON connection_installations(connection_id, installation_id)"
   );
+
+  // Backfill: a GITHUB_APP connection created before this table existed
+  // still has its one installation on the parent row (installation_id/
+  // login), kept there deliberately for backward-compat display — but
+  // GET /orgs and every org-scoped lookup now read exclusively from
+  // connection_installations. Without this, every GitHub App connection
+  // made before this feature shipped would silently see zero orgs (real
+  // regression hit in production, not a hypothetical). This is the
+  // confirmed exception to this file's usual "don't backfill" default —
+  // the source data (installation_id/login) is still present on the
+  // parent row, nothing was dropped, and leaving it un-backfilled breaks
+  // a working feature rather than just failing to enrich old data.
+  // Idempotent: WHERE NOT EXISTS skips any connection that already has at
+  // least one installation row, including ones this backfill already ran
+  // for. account_type/account_avatar_url are best-effort placeholders —
+  // reconnecting the same GitHub App (POST /connections/github-app)
+  // overwrites this row with the real values from GitHub.
+  db.exec(`
+    INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+    SELECT lower(hex(randomblob(16))), c.id, c.installation_id, COALESCE(c.login, 'unknown'), 'Organization', ''
+    FROM connections c
+    WHERE c.type = 'GITHUB_APP'
+      AND c.installation_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM connection_installations ci WHERE ci.connection_id = c.id
+      )
+  `);
 }
 
 function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {
