@@ -38,6 +38,9 @@ export async function loadOctokitForCurrentConnection(db: AppDatabase, userId: s
     host: row.host,
     appId: row.app_id,
     installationId: row.installation_id,
+    // getCurrentConnectionRow only ever returns the active row for this
+    // user (it filters WHERE is_active = 1), so this is always true here.
+    active: true,
     createdAt: row.created_at,
   };
 

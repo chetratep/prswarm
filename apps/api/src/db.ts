@@ -424,6 +424,26 @@ function runMigrations(db: AppDatabase): void {
   // through the app. Idempotent: a second run finds nothing left with
   // user_id IS NULL.
   db.exec("UPDATE connections SET user_id = 'local' WHERE user_id IS NULL");
+
+  // connections.is_active / the 2-slot model: a user may now save one PAT
+  // connection and one GitHub App connection at once instead of at most one
+  // connection total — switching which is active no longer deletes the
+  // other (see connectionsRepository.ts's replaceWith*/activateConnection).
+  // DEFAULT 1 means every pre-existing row (at most one per user, today's
+  // invariant) becomes active on migration, which is exactly correct: it
+  // was already "the" connection for that user.
+  addColumnIfNotExists(db, "connections", "is_active", "INTEGER NOT NULL DEFAULT 1");
+
+  // At most one row per (user, type) — the 2-slot rule itself.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_user_type ON connections(user_id, type)"
+  );
+  // At most one active row per user, enforced at the DB layer, not just in
+  // application logic. Partial index — rows with is_active = 0 don't
+  // participate, so a user can have an inactive second slot freely.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_one_active ON connections(user_id) WHERE is_active = 1"
+  );
 }
 
 function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {

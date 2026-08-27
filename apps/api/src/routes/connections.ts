@@ -23,8 +23,11 @@ import { resolveCurrentUser } from "../auth/currentUser.js";
 import { listAppInstallations } from "../github/appAuth.js";
 import { buildGheBaseUrl, normalizeGheHost } from "../github/host.js";
 import {
-  deleteCurrentConnection,
+  activateConnection,
+  ConnectionNotFoundError,
+  deleteConnection,
   getCurrentConnection,
+  listConnections,
   replaceWithGithubAppConnection,
   replaceWithPatConnection,
 } from "../repositories/connectionsRepository.js";
@@ -165,6 +168,11 @@ export async function registerConnectionsRoutes(
     return response;
   });
 
+  app.get("/connections", async (request) => {
+    const currentUser = resolveCurrentUser(request);
+    return listConnections(db, currentUser.userId);
+  });
+
   app.get("/connections/current", async (request, reply) => {
     const currentUser = resolveCurrentUser(request);
     const connection: Connection | null = getCurrentConnection(db, currentUser.userId);
@@ -174,12 +182,24 @@ export async function registerConnectionsRoutes(
     return connection;
   });
 
+  app.post<{ Params: { id: string } }>("/connections/:id/activate", async (request, reply) => {
+    const currentUser = resolveCurrentUser(request);
+    try {
+      return activateConnection(db, currentUser.userId, request.params.id);
+    } catch (err) {
+      if (err instanceof ConnectionNotFoundError) {
+        return reply.code(404).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
   // Deliberately not "disconnect and stop" — this only forgets the stored
   // credential locally. It never revokes the PAT/App key on GitHub's side —
   // reconnecting the same credential afterward still works.
-  app.delete("/connections/current", async (request, reply) => {
+  app.delete<{ Params: { id: string } }>("/connections/:id", async (request, reply) => {
     const currentUser = resolveCurrentUser(request);
-    deleteCurrentConnection(db, currentUser.userId);
+    deleteConnection(db, currentUser.userId, request.params.id);
     return reply.code(204).send();
   });
 }

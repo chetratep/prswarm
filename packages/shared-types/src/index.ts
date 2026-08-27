@@ -10,6 +10,7 @@ export interface Connection {
   host: string | null;
   appId: string | null;
   installationId: string | null;
+  active: boolean;
   createdAt: string;
 }
 

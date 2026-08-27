@@ -588,3 +588,80 @@ describe("openDatabase encryption at rest", () => {
     db = undefined;
   });
 });
+
+describe("connections table: is_active + 2-slot migration", () => {
+  it("adds is_active defaulting to 1 for existing and new rows", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('id-1', 'user-a', 'PAT', 'octocat', NULL, NULL, NULL, 'enc', '2026-01-01T00:00:00.000Z')`
+    ).run();
+
+    const row = db.prepare("SELECT is_active FROM connections WHERE id = 'id-1'").get() as { is_active: number };
+    expect(row.is_active).toBe(1);
+  });
+
+  it("rejects a second row of the same type for the same user", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('id-1', 'user-a', 'PAT', 'octocat', NULL, NULL, NULL, 'enc', '2026-01-01T00:00:00.000Z')`
+    ).run();
+
+    expect(() =>
+      db!
+        .prepare(
+          `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+           VALUES ('id-2', 'user-a', 'PAT', 'octocat2', NULL, NULL, NULL, 'enc2', '2026-01-01T00:00:00.000Z')`
+        )
+        .run()
+    ).toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("allows one PAT row and one GITHUB_APP row for the same user", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('id-1', 'user-a', 'PAT', 'octocat', NULL, NULL, NULL, 'enc', '2026-01-01T00:00:00.000Z')`
+    ).run();
+
+    // is_active = 0 here isolates what this test checks (the (user_id,
+    // type) index allows two different types) from the separate
+    // one-active-row-per-user index, which is covered by its own test below
+    // — both rows defaulting to is_active = 1 would trip that other index
+    // instead and this test wouldn't be testing what its name says.
+    expect(() =>
+      db!
+        .prepare(
+          `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, is_active, created_at)
+           VALUES ('id-2', 'user-a', 'GITHUB_APP', 'octocat', NULL, 'app-1', '99', 'enc2', 0, '2026-01-01T00:00:00.000Z')`
+        )
+        .run()
+    ).not.toThrow();
+  });
+
+  it("rejects a second active row for the same user", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, is_active, created_at)
+       VALUES ('id-1', 'user-a', 'PAT', 'octocat', NULL, NULL, NULL, 'enc', 1, '2026-01-01T00:00:00.000Z')`
+    ).run();
+
+    expect(() =>
+      db!
+        .prepare(
+          `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, is_active, created_at)
+           VALUES ('id-2', 'user-a', 'GITHUB_APP', 'octocat', NULL, 'app-1', '99', 'enc2', 1, '2026-01-01T00:00:00.000Z')`
+        )
+        .run()
+    ).toThrow(/UNIQUE constraint failed/);
+  });
+});

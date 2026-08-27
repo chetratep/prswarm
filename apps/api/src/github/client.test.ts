@@ -10,6 +10,7 @@ function baseConnection(overrides: Partial<Connection> = {}): Connection {
     host: null,
     appId: null,
     installationId: null,
+    active: true,
     createdAt: "2020-01-01T00:00:00.000Z",
     ...overrides,
   };

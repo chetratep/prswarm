@@ -4,9 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { openDatabase, type AppDatabase } from "../db.js";
 import {
-  deleteCurrentConnection,
+  activateConnection,
+  ConnectionNotFoundError,
+  deleteConnection,
   getCurrentConnection,
+  listConnections,
   reassignOrphanedConnections,
+  replaceWithGithubAppConnection,
   replaceWithPatConnection,
 } from "./connectionsRepository.js";
 
@@ -34,19 +38,23 @@ function freshDb(): AppDatabase {
 }
 
 describe("connectionsRepository", () => {
-  it("deleteCurrentConnection removes only that user's connection", () => {
+  it("deleteConnection removes only that specific connection", () => {
     const database = freshDb();
-    replaceWithPatConnection(database, "user-a", { login: "octocat", host: null, encryptedToken: "enc" });
+    const connection = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc",
+    });
     expect(getCurrentConnection(database, "user-a")).not.toBeNull();
 
-    deleteCurrentConnection(database, "user-a");
+    deleteConnection(database, "user-a", connection.id);
 
     expect(getCurrentConnection(database, "user-a")).toBeNull();
   });
 
-  it("deleteCurrentConnection is a no-op when that user has no connection", () => {
+  it("deleteConnection is a no-op when that id doesn't exist for that user", () => {
     const database = freshDb();
-    expect(() => deleteCurrentConnection(database, "nobody")).not.toThrow();
+    expect(() => deleteConnection(database, "nobody", "no-such-id")).not.toThrow();
   });
 
   it("reconnecting one user's PAT never touches another user's connection", () => {
@@ -109,5 +117,152 @@ describe("connectionsRepository", () => {
 
     expect(getCurrentConnection(database, "admin-1")?.login).toBe("local-user-login");
     expect(getCurrentConnection(database, "local")).toBeNull();
+  });
+
+  it("connecting a GitHub App after a PAT leaves the PAT row intact and inactive", () => {
+    const database = freshDb();
+    const pat = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc-pat",
+    });
+
+    const app = replaceWithGithubAppConnection(database, "user-a", {
+      login: "my-org",
+      host: null,
+      appId: "app-1",
+      installationId: 99,
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+
+    const connections = listConnections(database, "user-a");
+    expect(connections).toHaveLength(2);
+
+    const patRow = connections.find((c) => c.id === pat.id);
+    const appRow = connections.find((c) => c.id === app.id);
+    expect(patRow?.active).toBe(false);
+    expect(appRow?.active).toBe(true);
+    // The active connection resolved for job execution is the one just connected.
+    expect(getCurrentConnection(database, "user-a")?.id).toBe(app.id);
+  });
+
+  it("reconnecting a PAT after a GitHub App is already saved leaves the GitHub App intact and inactive", () => {
+    const database = freshDb();
+    const app = replaceWithGithubAppConnection(database, "user-a", {
+      login: "my-org",
+      host: null,
+      appId: "app-1",
+      installationId: 99,
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+    const pat = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc-pat",
+    });
+
+    const connections = listConnections(database, "user-a");
+    expect(connections.find((c) => c.id === app.id)?.active).toBe(false);
+    expect(connections.find((c) => c.id === pat.id)?.active).toBe(true);
+    expect(getCurrentConnection(database, "user-a")?.id).toBe(pat.id);
+  });
+
+  it("reconnecting the same type twice replaces only that type's row (still 2-slot max)", () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      login: "my-org",
+      host: null,
+      appId: "app-1",
+      installationId: 99,
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+    replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc-pat-1",
+    });
+    // Reconnect PAT with a different token — must replace the PAT slot, not add a third row.
+    replaceWithPatConnection(database, "user-a", {
+      login: "octocat-2",
+      host: null,
+      encryptedToken: "enc-pat-2",
+    });
+
+    const connections = listConnections(database, "user-a");
+    expect(connections).toHaveLength(2);
+    expect(connections.find((c) => c.type === "PAT")?.login).toBe("octocat-2");
+  });
+
+  it("activateConnection switches which connection is active without touching the other", () => {
+    const database = freshDb();
+    const pat = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc-pat",
+    });
+    const app = replaceWithGithubAppConnection(database, "user-a", {
+      login: "my-org",
+      host: null,
+      appId: "app-1",
+      installationId: 99,
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+    expect(getCurrentConnection(database, "user-a")?.id).toBe(app.id); // most recently connected
+
+    const activated = activateConnection(database, "user-a", pat.id);
+
+    expect(activated.active).toBe(true);
+    expect(getCurrentConnection(database, "user-a")?.id).toBe(pat.id);
+    expect(listConnections(database, "user-a").find((c) => c.id === app.id)?.active).toBe(false);
+  });
+
+  it("activateConnection rejects an id that doesn't belong to that user", () => {
+    const database = freshDb();
+    const pat = replaceWithPatConnection(database, "user-b", {
+      login: "someone-else",
+      host: null,
+      encryptedToken: "enc",
+    });
+
+    expect(() => activateConnection(database, "user-a", pat.id)).toThrow(ConnectionNotFoundError);
+  });
+
+  it("deleteConnection auto-activates the remaining slot when the active one is removed", () => {
+    const database = freshDb();
+    const pat = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc-pat",
+    });
+    const app = replaceWithGithubAppConnection(database, "user-a", {
+      login: "my-org",
+      host: null,
+      appId: "app-1",
+      installationId: 99,
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+    expect(getCurrentConnection(database, "user-a")?.id).toBe(app.id);
+
+    deleteConnection(database, "user-a", app.id);
+
+    const remaining = listConnections(database, "user-a");
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.id).toBe(pat.id);
+    expect(remaining[0]?.active).toBe(true);
+    expect(getCurrentConnection(database, "user-a")?.id).toBe(pat.id);
+  });
+
+  it("deleteConnection leaves no active connection when the only slot is removed", () => {
+    const database = freshDb();
+    const pat = replaceWithPatConnection(database, "user-a", {
+      login: "octocat",
+      host: null,
+      encryptedToken: "enc-pat",
+    });
+
+    deleteConnection(database, "user-a", pat.id);
+
+    expect(listConnections(database, "user-a")).toHaveLength(0);
+    expect(getCurrentConnection(database, "user-a")).toBeNull();
   });
 });
