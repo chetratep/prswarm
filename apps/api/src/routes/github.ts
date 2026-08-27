@@ -12,41 +12,14 @@ export interface GithubRouteOptions {
   db: AppDatabase;
 }
 
-const MAX_REQUESTS_PER_WINDOW = 30;
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-
-interface RequestWindow {
-  count: number;
-  windowStart: number;
-}
-
 // Both routes below call the GitHub API on every request — /orgs/:org/repos
 // paginates through every page of a potentially large org, an expensive
 // operation an authenticated user could otherwise trigger without limit,
 // exhausting either this server or the connection's own GitHub API rate
-// limit. Single-process, in-memory, keyed by user rather than IP (these
-// routes already require auth) — same reasoning and shape as the login
-// rate limiter in auth.ts, kept separate since that one is failed-attempts
-// -only and IP-keyed, a different threat model.
-const requestsByUser = new Map<string, RequestWindow>();
-
-export function isOverRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const record = requestsByUser.get(userId);
-
-  if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
-    requestsByUser.set(userId, { count: 1, windowStart: now });
-    return false;
-  }
-
-  record.count += 1;
-  return record.count > MAX_REQUESTS_PER_WINDOW;
-}
-
-/** Test-only: clears in-memory rate-limit state between test cases. */
-export function __resetRateLimitForTests(): void {
-  requestsByUser.clear();
-}
+// limit. @fastify/rate-limit is registered globally with `global: false`
+// (see index.ts) so it only applies where a route opts in via this config,
+// keyed per-user via the same keyGenerator for both.
+export const RATE_LIMIT_CONFIG = { rateLimit: { max: 30, timeWindow: "1 minute" } };
 
 async function getOctokitOr400(
   db: AppDatabase,
@@ -97,11 +70,8 @@ async function resolveSelf(connectionRow: ConnectionRow | undefined, octokit: Oc
 export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRouteOptions): Promise<void> {
   const { db } = opts;
 
-  app.get("/orgs", async (request, reply) => {
+  app.get("/orgs", { config: RATE_LIMIT_CONFIG }, async (request, reply) => {
     const currentUser = resolveCurrentUser(request);
-    if (isOverRateLimit(currentUser.userId)) {
-      return reply.code(429).send({ error: "Too many requests. Try again shortly." });
-    }
     const octokit = await getOctokitOr400(db, currentUser.userId, reply);
     if (!octokit) return reply;
 
@@ -139,11 +109,8 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
   app.get<{
     Params: { org: string };
     Querystring: { q?: string; language?: string; topic?: string; archived?: "true" | "false" };
-  }>("/orgs/:org/repos", async (request, reply) => {
+  }>("/orgs/:org/repos", { config: RATE_LIMIT_CONFIG }, async (request, reply) => {
     const currentUser = resolveCurrentUser(request);
-    if (isOverRateLimit(currentUser.userId)) {
-      return reply.code(429).send({ error: "Too many requests. Try again shortly." });
-    }
     const octokit = await getOctokitOr400(db, currentUser.userId, reply);
     if (!octokit) return reply;
 

@@ -9,9 +9,11 @@ import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import Fastify, { type FastifyInstance } from "fastify";
+import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import type { AppDatabase } from "./db.js";
 import { bootstrapAuth } from "./auth/bootstrap.js";
+import { resolveCurrentUser } from "./auth/currentUser.js";
 import { registerSession } from "./auth/session.js";
 import { assertEncryptionKeyAvailableFor, assertEncryptionKeyConfigured } from "./crypto.js";
 import { openDatabase } from "./db.js";
@@ -67,6 +69,18 @@ async function buildAndListen(
   await registerSession(app, {
     authEnabled,
     sessionSecret: process.env.SESSION_SECRET,
+  });
+
+  // Registered globally but inert by default (`global: false`) — only
+  // routes that opt in via `{ config: { rateLimit: {...} } }` are actually
+  // limited (currently just GET /orgs and /orgs/:org/repos in
+  // routes/github.ts, both of which call the GitHub API on every request).
+  // keyGenerator reads the session user resolveCurrentUser() decorates
+  // onto the request, which registerSession's hook above always sets
+  // before any opted-in route runs.
+  await app.register(fastifyRateLimit, {
+    global: false,
+    keyGenerator: (request) => resolveCurrentUser(request).userId,
   });
 
   await app.register(
