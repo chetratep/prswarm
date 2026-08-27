@@ -3,8 +3,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { GitHubOrgSummary, GitHubRepoSummary } from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
-import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
-import { getCurrentConnectionRow, type ConnectionRow } from "../repositories/connectionsRepository.js";
+import { loadOctokitForCurrentConnection, loadOctokitForOrg, NoConnectionError, OrgNotInstalledError } from "../github/loadConnection.js";
+import { getCurrentConnectionRow, listConnectionInstallations, type ConnectionRow } from "../repositories/connectionsRepository.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";
 import type { Octokit } from "@octokit/rest";
 
@@ -72,20 +72,30 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
 
   app.get("/orgs", { config: RATE_LIMIT_CONFIG }, async (request, reply) => {
     const currentUser = resolveCurrentUser(request);
+    const connectionRow = getCurrentConnectionRow(db, currentUser.userId);
+    if (!connectionRow) {
+      return reply.code(400).send({ error: new NoConnectionError().message });
+    }
+
+    // GitHub App: every installation this connection is bound to, straight
+    // from the DB — captured at connect time, no GitHub API call needed.
+    // A GitHub App can be installed on many orgs/accounts at once (unlike
+    // the old one-installation-per-connection model this replaced).
+    if (connectionRow.type === "GITHUB_APP") {
+      const installations = listConnectionInstallations(db, connectionRow.id);
+      const orgs: GitHubOrgSummary[] = installations.map((installation) => ({
+        login: installation.accountLogin,
+        id: Number(installation.installationId),
+        avatarUrl: installation.accountAvatarUrl,
+        type: installation.accountType,
+      }));
+      return orgs;
+    }
+
     const octokit = await getOctokitOr400(db, currentUser.userId, reply);
     if (!octokit) return reply;
 
-    const connectionRow = getCurrentConnectionRow(db, currentUser.userId);
     const self = await resolveSelf(connectionRow, octokit);
-
-    // A GitHub App connection is already bound to exactly one account (the
-    // installation it was connected to) — there's no "list every org I
-    // belong to" the way a PAT can see (that's GET /user/orgs, also a
-    // user-token-only endpoint an installation token can't call). That one
-    // account IS the only entry.
-    if (connectionRow?.type === "GITHUB_APP") {
-      return [self satisfies GitHubOrgSummary];
-    }
 
     // The authenticated account's own namespace isn't an "org" from GitHub's
     // API point of view, but repos owned directly by you (not under any
@@ -111,9 +121,6 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
     Querystring: { q?: string; language?: string; topic?: string; archived?: "true" | "false" };
   }>("/orgs/:org/repos", { config: RATE_LIMIT_CONFIG }, async (request, reply) => {
     const currentUser = resolveCurrentUser(request);
-    const octokit = await getOctokitOr400(db, currentUser.userId, reply);
-    if (!octokit) return reply;
-
     const { org } = request.params;
     const q = request.query.q?.trim().toLowerCase();
     const language = request.query.language?.trim().toLowerCase();
@@ -121,20 +128,33 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
     const archived = request.query.archived;
 
     const connectionRow = getCurrentConnectionRow(db, currentUser.userId);
+    if (!connectionRow) {
+      return reply.code(400).send({ error: new NoConnectionError().message });
+    }
 
     // Follow every page — orgs (and users) can have hundreds of repos and
     // "select all" depends on seeing the full list, not just page 1.
     let allRepos;
-    if (connectionRow?.type === "GITHUB_APP") {
+    if (connectionRow.type === "GITHUB_APP") {
       // repos.listForOrg / listForAuthenticatedUser are "for the
       // authenticated user" endpoints an installation token can't reliably
       // use (same restriction that breaks GET /user), and even where they
       // do work they can list more than the installation was actually
       // granted (an install can be scoped to "selected repositories"). The
       // dedicated installation-repos endpoint is the only one guaranteed to
-      // match what this connection can actually read/write — :org is
-      // unused here since a GitHub App connection is already bound to
-      // exactly one account.
+      // match what this connection can actually read/write. This
+      // connection may be bound to multiple installations now, so resolve
+      // the one that actually owns :org rather than a connection-wide
+      // client.
+      let octokit;
+      try {
+        octokit = await loadOctokitForOrg(db, currentUser.userId, org);
+      } catch (err) {
+        if (err instanceof OrgNotInstalledError) {
+          return reply.code(404).send({ error: err.message });
+        }
+        throw err;
+      }
       allRepos = await octokit.paginate(octokit.rest.apps.listReposAccessibleToInstallation, {
         per_page: 100,
       });
@@ -142,6 +162,8 @@ export async function registerGithubRoutes(app: FastifyInstance, opts: GithubRou
       // A repo path can't tell you whether ":org" is a real org or the
       // authenticated user's own login — GitHub has separate endpoints for
       // each and 404s if you call the wrong one. Ask once, cheaply.
+      const octokit = await getOctokitOr400(db, currentUser.userId, reply);
+      if (!octokit) return reply;
       const self = await resolveSelf(connectionRow, octokit);
       allRepos =
         org === self.login

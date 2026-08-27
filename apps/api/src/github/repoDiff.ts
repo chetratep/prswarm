@@ -33,7 +33,7 @@ function statusOf(err: unknown): number | undefined {
     : undefined;
 }
 
-function failedRepoRun(directToDefault: boolean, errorMessage: string): RepoRunPreview {
+export function failedRepoRun(directToDefault: boolean, errorMessage: string): RepoRunPreview {
   return {
     status: "FAILED",
     branchProtected: null,

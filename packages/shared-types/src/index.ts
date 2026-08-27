@@ -3,6 +3,13 @@
 
 export type ConnectionType = "PAT" | "GITHUB_APP";
 
+export interface ConnectionInstallationSummary {
+  installationId: string;
+  accountLogin: string;
+  accountType: "User" | "Organization";
+  accountAvatarUrl: string;
+}
+
 export interface Connection {
   id: string;
   type: ConnectionType;
@@ -11,6 +18,8 @@ export interface Connection {
   appId: string | null;
   installationId: string | null;
   active: boolean;
+  /** Present (length >= 1) for GITHUB_APP connections; undefined for PAT. */
+  installations?: ConnectionInstallationSummary[];
   createdAt: string;
 }
 
@@ -365,7 +374,7 @@ export interface ListGithubAppInstallationsResponse {
 export interface ConnectGithubAppRequest {
   appId: string;
   privateKeyPem: string;
-  installationId: number;
+  installationIds: number[];
   host?: string;
 }
 

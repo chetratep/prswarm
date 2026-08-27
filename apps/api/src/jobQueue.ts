@@ -11,7 +11,7 @@
 import pLimit from "p-limit";
 import type { Job, JobStatus, RepoRun, RepoRunStatus } from "@prswarm/shared-types";
 import type { AppDatabase } from "./db.js";
-import { loadOctokitForCurrentConnection } from "./github/loadConnection.js";
+import { createOrgOctokitResolver } from "./github/loadConnection.js";
 import { executeRepoRun } from "./github/repoExecute.js";
 import { publishJobEvent } from "./jobEventBus.js";
 import { notifySlack, resolveSlackWebhookUrl } from "./notifications/slack.js";
@@ -82,7 +82,7 @@ export async function runJobExecution(
     // specific credential's view of the repos; executing under a
     // different one could hit different actual permissions than what was
     // reviewed. See the design spec's "execution credential" section.
-    const octokit = await loadOctokitForCurrentConnection(db, job.createdBy);
+    const resolveOctokit = createOrgOctokitResolver(db, job.createdBy);
 
     // The route handler already persisted RUNNING (and startedAt) before
     // calling us. Publish it anyway: an SSE client that connects after the
@@ -100,7 +100,22 @@ export async function runJobExecution(
       eligible.map((repoRun) =>
         limit(async () => {
           const repoRunFiles = getRepoRunFilesByRepoRunId(db, repoRun.id);
-          const update = await executeRepoRun(octokit, changeSet, changeSetFiles, repoRun, repoRunFiles);
+          let update;
+          try {
+            const repoOctokit = await resolveOctokit(repoRun.repoFullName.split("/")[0]);
+            update = await executeRepoRun(repoOctokit, changeSet, changeSetFiles, repoRun, repoRunFiles);
+          } catch (err) {
+            // Org resolution failed (e.g. a GitHub App connection with no
+            // installation for this repo's org, possibly because
+            // installations changed since preview time) — one repo's
+            // failure must never abort the rest of the concurrent batch,
+            // same invariant executeRepoRun itself already guarantees.
+            update = {
+              status: "FAILED" as const,
+              errorMessage: err instanceof Error ? err.message : String(err),
+              attemptCount: repoRun.attemptCount + 1,
+            };
+          }
           const updated = updateRepoRun(db, repoRun.id, update);
           publishJobEvent(jobId, { type: "repo_run_update", repoRun: updated, files: repoRunFiles });
         })

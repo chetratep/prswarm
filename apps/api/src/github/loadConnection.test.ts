@@ -12,8 +12,14 @@ import os from "node:os";
 import path from "node:path";
 import { openDatabase, type AppDatabase } from "../db.js";
 import { encrypt } from "../crypto.js";
-import { replaceWithPatConnection } from "../repositories/connectionsRepository.js";
-import { loadOctokitForCurrentConnection, NoConnectionError } from "./loadConnection.js";
+import { replaceWithGithubAppConnection, replaceWithPatConnection } from "../repositories/connectionsRepository.js";
+import {
+  createOrgOctokitResolver,
+  loadOctokitForCurrentConnection,
+  loadOctokitForOrg,
+  NoConnectionError,
+  OrgNotInstalledError,
+} from "./loadConnection.js";
 
 beforeAll(() => {
   // crypto.ts's encrypt/decrypt need a resolvable 32-byte AES key
@@ -125,5 +131,103 @@ describe("loadOctokitForCurrentConnection", () => {
     await expect(loadOctokitForCurrentConnection(database, "user-with-no-connection")).rejects.toThrow(
       NoConnectionError
     );
+  });
+});
+
+describe("loadOctokitForOrg", () => {
+  it("PAT: resolves the same client regardless of org", async () => {
+    const database = freshDb();
+    replaceWithPatConnection(database, "user-a", {
+      login: "alice-gh",
+      host: null,
+      encryptedToken: encrypt("token-for-alice"),
+    });
+
+    const octokit = await loadOctokitForOrg(database, "user-a", "whatever-org");
+    expect(await resolvedToken(octokit)).toBe("token-for-alice");
+  });
+
+  it("GitHub App: resolves the installation matching the given org", async () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [
+        { installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "" },
+        { installationId: 11, accountLogin: "org-b", accountType: "Organization", accountAvatarUrl: "" },
+      ],
+      encryptedPrivateKeyPem: encrypt("pem-contents"),
+    });
+
+    const octokitA = await loadOctokitForOrg(database, "user-a", "org-a");
+    const octokitB = await loadOctokitForOrg(database, "user-a", "org-b");
+
+    expect(octokitA).toBeDefined();
+    expect(octokitB).toBeDefined();
+  });
+
+  it("GitHub App: org match is case-insensitive", async () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [{ installationId: 10, accountLogin: "Org-A", accountType: "Organization", accountAvatarUrl: "" }],
+      encryptedPrivateKeyPem: encrypt("pem-contents"),
+    });
+
+    await expect(loadOctokitForOrg(database, "user-a", "org-a")).resolves.toBeDefined();
+  });
+
+  it("GitHub App: throws OrgNotInstalledError for an org this connection has no installation for", async () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [{ installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "" }],
+      encryptedPrivateKeyPem: encrypt("pem-contents"),
+    });
+
+    await expect(loadOctokitForOrg(database, "user-a", "org-not-installed")).rejects.toThrow(OrgNotInstalledError);
+  });
+
+  it("throws NoConnectionError when the user has no connection at all", async () => {
+    const database = freshDb();
+    await expect(loadOctokitForOrg(database, "nobody", "any-org")).rejects.toThrow(NoConnectionError);
+  });
+});
+
+describe("createOrgOctokitResolver", () => {
+  it("memoizes: the same org resolves to the same in-flight/resolved client instance", async () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [{ installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "" }],
+      encryptedPrivateKeyPem: encrypt("pem-contents"),
+    });
+
+    const resolve = createOrgOctokitResolver(database, "user-a");
+    const [first, second] = await Promise.all([resolve("org-a"), resolve("org-a")]);
+
+    expect(first).toBe(second);
+  });
+
+  it("resolves different orgs independently", async () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [
+        { installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "" },
+        { installationId: 11, accountLogin: "org-b", accountType: "Organization", accountAvatarUrl: "" },
+      ],
+      encryptedPrivateKeyPem: encrypt("pem-contents"),
+    });
+
+    const resolve = createOrgOctokitResolver(database, "user-a");
+    const first = await resolve("org-a");
+    const second = await resolve("org-b");
+
+    expect(first).not.toBe(second);
   });
 });

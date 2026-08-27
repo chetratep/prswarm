@@ -46,7 +46,7 @@ const listGithubAppInstallationsBodySchema = z.object({
 const connectGithubAppBodySchema = z.object({
   appId: z.string().min(1),
   privateKeyPem: z.string().min(1),
-  installationId: z.number(),
+  installationIds: z.array(z.number()).min(1),
   host: z.string().min(1).optional(),
 });
 
@@ -129,9 +129,9 @@ export async function registerConnectionsRoutes(
   app.post<{ Body: ConnectGithubAppRequest }>("/connections/github-app", async (request, reply) => {
     const parsed = connectGithubAppBodySchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: "appId, privateKeyPem, and installationId are required" });
+      return reply.code(400).send({ error: "appId, privateKeyPem, and installationIds are required" });
     }
-    const { appId, privateKeyPem, installationId, host } = parsed.data;
+    const { appId, privateKeyPem, installationIds, host } = parsed.data;
     const currentUser = resolveCurrentUser(request);
     const normalizedHost = normalizeGheHost(host);
 
@@ -145,22 +145,32 @@ export async function registerConnectionsRoutes(
       });
     }
 
-    // Never trust a client-supplied login — derive it server-side from the
-    // App's own installation list so the connection is always bound to an
-    // installation this App ID + private key actually has access to.
-    const match = installations.find((inst) => inst.installationId === installationId);
-    if (!match) {
-      return reply.code(400).send({
-        error: `Installation ${installationId} was not found among this GitHub App's installations.`,
-      });
+    // Never trust client-supplied installation details — derive them
+    // server-side from the App's own installation list, so a connection is
+    // always bound only to installations this App ID + private key
+    // actually has access to. Any requested id not found there is a 400
+    // naming which one, not a silent partial connect.
+    const matched: typeof installations = [];
+    for (const installationId of installationIds) {
+      const match = installations.find((inst) => inst.installationId === installationId);
+      if (!match) {
+        return reply.code(400).send({
+          error: `Installation ${installationId} was not found among this GitHub App's installations.`,
+        });
+      }
+      matched.push(match);
     }
 
     const encryptedPrivateKeyPem = encrypt(privateKeyPem);
     const connection = replaceWithGithubAppConnection(db, currentUser.userId, {
-      login: match.accountLogin,
       host: normalizedHost,
       appId,
-      installationId,
+      installations: matched.map((inst) => ({
+        installationId: inst.installationId,
+        accountLogin: inst.accountLogin,
+        accountType: inst.accountType,
+        accountAvatarUrl: inst.accountAvatarUrl,
+      })),
       encryptedPrivateKeyPem,
     });
 

@@ -444,6 +444,28 @@ function runMigrations(db: AppDatabase): void {
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_one_active ON connections(user_id) WHERE is_active = 1"
   );
+
+  // connection_installations: one row per installation a GitHub App
+  // connection is bound to. A GitHub App can be installed on many
+  // orgs/accounts at once; before this, a connection could only bind to
+  // one (GET /orgs returned exactly that one entry, unlike a PAT which
+  // sees every org the token can reach). No DB-level foreign key (this
+  // project doesn't enable PRAGMA foreign_keys) — rows are deleted
+  // explicitly in the same transaction as their parent connection row
+  // (see connectionsRepository.ts).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connection_installations (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      installation_id TEXT NOT NULL,
+      account_login TEXT NOT NULL,
+      account_type TEXT NOT NULL,
+      account_avatar_url TEXT NOT NULL
+    )
+  `);
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_connection_installations_unique ON connection_installations(connection_id, installation_id)"
+  );
 }
 
 function dropColumnIfExists(db: AppDatabase, table: string, column: string): void {

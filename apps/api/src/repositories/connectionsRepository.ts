@@ -7,7 +7,7 @@
 // deactivated. See docs/superpowers/specs/2026-08-27-non-destructive-
 // connection-switching-design.md for the full rationale.
 import { randomUUID } from "node:crypto";
-import type { Connection, ConnectionType } from "@prswarm/shared-types";
+import type { Connection, ConnectionInstallationSummary, ConnectionType } from "@prswarm/shared-types";
 import type { AppDatabase } from "../db.js";
 
 export interface ConnectionRow {
@@ -23,6 +23,15 @@ export interface ConnectionRow {
   created_at: string;
 }
 
+export interface ConnectionInstallationRow {
+  id: string;
+  connection_id: string;
+  installation_id: string;
+  account_login: string;
+  account_type: "User" | "Organization";
+  account_avatar_url: string;
+}
+
 export class ConnectionNotFoundError extends Error {
   constructor() {
     super("Connection not found.");
@@ -30,7 +39,7 @@ export class ConnectionNotFoundError extends Error {
   }
 }
 
-function rowToConnection(row: ConnectionRow): Connection {
+function rowToConnection(row: ConnectionRow, installations?: ConnectionInstallationSummary[]): Connection {
   return {
     id: row.id,
     type: row.type,
@@ -39,8 +48,27 @@ function rowToConnection(row: ConnectionRow): Connection {
     appId: row.app_id,
     installationId: row.installation_id,
     active: row.is_active === 1,
+    installations: row.type === "GITHUB_APP" ? (installations ?? []) : undefined,
     createdAt: row.created_at,
   };
+}
+
+function rowToInstallation(row: ConnectionInstallationRow): ConnectionInstallationSummary {
+  return {
+    installationId: row.installation_id,
+    accountLogin: row.account_login,
+    accountType: row.account_type,
+    accountAvatarUrl: row.account_avatar_url,
+  };
+}
+
+/** Every installation bound to one GitHub App connection. Empty for a
+ * connection that doesn't exist or isn't GITHUB_APP. */
+export function listConnectionInstallations(db: AppDatabase, connectionId: string): ConnectionInstallationSummary[] {
+  const rows = db
+    .prepare("SELECT * FROM connection_installations WHERE connection_id = ? ORDER BY account_login")
+    .all(connectionId) as ConnectionInstallationRow[];
+  return rows.map(rowToInstallation);
 }
 
 /** Returns the raw row (including encrypted_token) for internal use by the
@@ -53,7 +81,9 @@ export function getCurrentConnectionRow(db: AppDatabase, userId: string): Connec
 
 export function getCurrentConnection(db: AppDatabase, userId: string): Connection | null {
   const row = getCurrentConnectionRow(db, userId);
-  return row ? rowToConnection(row) : null;
+  if (!row) return null;
+  const installations = row.type === "GITHUB_APP" ? listConnectionInstallations(db, row.id) : undefined;
+  return rowToConnection(row, installations);
 }
 
 /** All of a user's saved connections (0, 1, or 2 — at most one per type). */
@@ -61,7 +91,9 @@ export function listConnections(db: AppDatabase, userId: string): Connection[] {
   const rows = db
     .prepare("SELECT * FROM connections WHERE user_id = ? ORDER BY type")
     .all(userId) as ConnectionRow[];
-  return rows.map(rowToConnection);
+  return rows.map((row) =>
+    rowToConnection(row, row.type === "GITHUB_APP" ? listConnectionInstallations(db, row.id) : undefined)
+  );
 }
 
 export interface CreatePatConnectionInput {
@@ -103,10 +135,14 @@ export function replaceWithPatConnection(
 }
 
 export interface CreateGithubAppConnectionInput {
-  login: string;
   host: string | null;
   appId: string;
-  installationId: number;
+  installations: {
+    installationId: number;
+    accountLogin: string;
+    accountType: "User" | "Organization";
+    accountAvatarUrl: string;
+  }[];
   encryptedPrivateKeyPem: string;
 }
 
@@ -115,11 +151,26 @@ export function replaceWithGithubAppConnection(
   userId: string,
   input: CreateGithubAppConnectionInput
 ): Connection {
+  if (input.installations.length === 0) {
+    throw new Error("replaceWithGithubAppConnection requires at least one installation.");
+  }
+
   const id = randomUUID();
   const createdAt = new Date().toISOString();
-  const installationId = String(input.installationId);
+  // The first selected installation is stored on the parent row too, for
+  // backward-compat display (Connection.login/installationId always have a
+  // single value) — the child table is authoritative for actual auth
+  // resolution once more than one installation is present.
+  const primary = input.installations[0]!;
+  const primaryInstallationId = String(primary.installationId);
 
   db.transaction(() => {
+    const existing = db
+      .prepare("SELECT id FROM connections WHERE user_id = ? AND type = 'GITHUB_APP'")
+      .get(userId) as { id: string } | undefined;
+    if (existing) {
+      db.prepare("DELETE FROM connection_installations WHERE connection_id = ?").run(existing.id);
+    }
     db.prepare("DELETE FROM connections WHERE user_id = ? AND type = 'GITHUB_APP'").run(userId);
     db.prepare("UPDATE connections SET is_active = 0 WHERE user_id = ?").run(userId);
     db.prepare(
@@ -128,23 +179,43 @@ export function replaceWithGithubAppConnection(
     ).run(
       id,
       userId,
-      input.login,
+      primary.accountLogin,
       input.host,
       input.appId,
-      installationId,
+      primaryInstallationId,
       input.encryptedPrivateKeyPem,
       createdAt
     );
+
+    for (const installation of input.installations) {
+      db.prepare(
+        `INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(),
+        id,
+        String(installation.installationId),
+        installation.accountLogin,
+        installation.accountType,
+        installation.accountAvatarUrl
+      );
+    }
   })();
 
   return {
     id,
     type: "GITHUB_APP",
-    login: input.login,
+    login: primary.accountLogin,
     host: input.host,
     appId: input.appId,
-    installationId,
+    installationId: primaryInstallationId,
     active: true,
+    installations: input.installations.map((installation) => ({
+      installationId: String(installation.installationId),
+      accountLogin: installation.accountLogin,
+      accountType: installation.accountType,
+      accountAvatarUrl: installation.accountAvatarUrl,
+    })),
     createdAt,
   };
 }
@@ -179,6 +250,7 @@ export function deleteConnection(db: AppDatabase, userId: string, id: string): v
       | undefined;
     if (!target) return;
 
+    db.prepare("DELETE FROM connection_installations WHERE connection_id = ?").run(id);
     db.prepare("DELETE FROM connections WHERE id = ? AND user_id = ?").run(id, userId);
 
     if (target.is_active === 1) {

@@ -8,6 +8,7 @@ import {
   ConnectionNotFoundError,
   deleteConnection,
   getCurrentConnection,
+  listConnectionInstallations,
   listConnections,
   reassignOrphanedConnections,
   replaceWithGithubAppConnection,
@@ -128,10 +129,9 @@ describe("connectionsRepository", () => {
     });
 
     const app = replaceWithGithubAppConnection(database, "user-a", {
-      login: "my-org",
       host: null,
       appId: "app-1",
-      installationId: 99,
+      installations: [{ installationId: 99, accountLogin: "my-org", accountType: "Organization", accountAvatarUrl: "" }],
       encryptedPrivateKeyPem: "enc-pem",
     });
 
@@ -149,10 +149,9 @@ describe("connectionsRepository", () => {
   it("reconnecting a PAT after a GitHub App is already saved leaves the GitHub App intact and inactive", () => {
     const database = freshDb();
     const app = replaceWithGithubAppConnection(database, "user-a", {
-      login: "my-org",
       host: null,
       appId: "app-1",
-      installationId: 99,
+      installations: [{ installationId: 99, accountLogin: "my-org", accountType: "Organization", accountAvatarUrl: "" }],
       encryptedPrivateKeyPem: "enc-pem",
     });
     const pat = replaceWithPatConnection(database, "user-a", {
@@ -170,10 +169,9 @@ describe("connectionsRepository", () => {
   it("reconnecting the same type twice replaces only that type's row (still 2-slot max)", () => {
     const database = freshDb();
     replaceWithGithubAppConnection(database, "user-a", {
-      login: "my-org",
       host: null,
       appId: "app-1",
-      installationId: 99,
+      installations: [{ installationId: 99, accountLogin: "my-org", accountType: "Organization", accountAvatarUrl: "" }],
       encryptedPrivateKeyPem: "enc-pem",
     });
     replaceWithPatConnection(database, "user-a", {
@@ -201,10 +199,9 @@ describe("connectionsRepository", () => {
       encryptedToken: "enc-pat",
     });
     const app = replaceWithGithubAppConnection(database, "user-a", {
-      login: "my-org",
       host: null,
       appId: "app-1",
-      installationId: 99,
+      installations: [{ installationId: 99, accountLogin: "my-org", accountType: "Organization", accountAvatarUrl: "" }],
       encryptedPrivateKeyPem: "enc-pem",
     });
     expect(getCurrentConnection(database, "user-a")?.id).toBe(app.id); // most recently connected
@@ -235,10 +232,9 @@ describe("connectionsRepository", () => {
       encryptedToken: "enc-pat",
     });
     const app = replaceWithGithubAppConnection(database, "user-a", {
-      login: "my-org",
       host: null,
       appId: "app-1",
-      installationId: 99,
+      installations: [{ installationId: 99, accountLogin: "my-org", accountType: "Organization", accountAvatarUrl: "" }],
       encryptedPrivateKeyPem: "enc-pem",
     });
     expect(getCurrentConnection(database, "user-a")?.id).toBe(app.id);
@@ -264,5 +260,70 @@ describe("connectionsRepository", () => {
 
     expect(listConnections(database, "user-a")).toHaveLength(0);
     expect(getCurrentConnection(database, "user-a")).toBeNull();
+  });
+
+  it("stores multiple installations and returns them via listConnections", () => {
+    const database = freshDb();
+    const app = replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [
+        { installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "https://x/a.png" },
+        { installationId: 11, accountLogin: "org-b", accountType: "Organization", accountAvatarUrl: "https://x/b.png" },
+      ],
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+
+    expect(app.login).toBe("org-a"); // first selected installation, for backward-compat display
+    expect(app.installations).toHaveLength(2);
+    expect(app.installations?.map((i) => i.accountLogin).sort()).toEqual(["org-a", "org-b"]);
+
+    const listed = listConnections(database, "user-a");
+    expect(listed[0]?.installations).toHaveLength(2);
+
+    const current = getCurrentConnection(database, "user-a");
+    expect(current?.installations).toHaveLength(2);
+  });
+
+  it("a PAT connection's installations field is undefined", () => {
+    const database = freshDb();
+    replaceWithPatConnection(database, "user-a", { login: "octocat", host: null, encryptedToken: "enc" });
+
+    const current = getCurrentConnection(database, "user-a");
+    expect(current?.installations).toBeUndefined();
+  });
+
+  it("reconnecting a GitHub App replaces its installations, not just the connection row", () => {
+    const database = freshDb();
+    replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [{ installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "" }],
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+
+    const reconnected = replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [{ installationId: 20, accountLogin: "org-c", accountType: "Organization", accountAvatarUrl: "" }],
+      encryptedPrivateKeyPem: "enc-pem-2",
+    });
+
+    expect(listConnectionInstallations(database, reconnected.id)).toHaveLength(1);
+    expect(listConnectionInstallations(database, reconnected.id)[0]?.accountLogin).toBe("org-c");
+  });
+
+  it("deleteConnection removes that connection's installation rows too", () => {
+    const database = freshDb();
+    const app = replaceWithGithubAppConnection(database, "user-a", {
+      host: null,
+      appId: "app-1",
+      installations: [{ installationId: 10, accountLogin: "org-a", accountType: "Organization", accountAvatarUrl: "" }],
+      encryptedPrivateKeyPem: "enc-pem",
+    });
+
+    deleteConnection(database, "user-a", app.id);
+
+    expect(listConnectionInstallations(database, app.id)).toHaveLength(0);
   });
 });

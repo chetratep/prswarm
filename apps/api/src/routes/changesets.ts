@@ -21,7 +21,8 @@ import {
 import type { AppDatabase } from "../db.js";
 import { loadOctokitForCurrentConnection, NoConnectionError } from "../github/loadConnection.js";
 import { resolveCurrentUser } from "../auth/currentUser.js";
-import { computeRepoRunPreview } from "../github/repoDiff.js";
+import { computeRepoRunPreview, failedRepoRun } from "../github/repoDiff.js";
+import { createOrgOctokitResolver } from "../github/loadConnection.js";
 import {
   getChangeSetById,
   getChangeSetFilesByChangeSetId,
@@ -148,8 +149,14 @@ export async function registerChangesetsRoutes(
       const { targetRepos, templateValues } = parsed.data;
 
       const currentUser = resolveCurrentUser(request);
-      const octokit = await getOctokitOr400(db, currentUser.userId, reply);
-      if (!octokit) return reply;
+      // Existence check up front — still needed before the loop starts. An
+      // org-scoped resolver only fails per-org, lazily inside the loop
+      // below, which would be a worse error for "no connection at all"
+      // (silently creating a job full of trivially-failed repo runs
+      // instead of a clean 400 before any DB writes happen).
+      const existenceCheck = await getOctokitOr400(db, currentUser.userId, reply);
+      if (!existenceCheck) return reply;
+      const resolveOctokit = createOrgOctokitResolver(db, currentUser.userId);
 
       const orgs = Array.from(new Set(targetRepos.map((full) => full.split("/")[0])));
 
@@ -191,13 +198,29 @@ export async function registerChangesetsRoutes(
               : file.content;
         }
 
-        const preview = await computeRepoRunPreview(
-          octokit,
-          changeSet,
-          changeSetFiles,
-          repoFullName,
-          afterContentByFileId
-        );
+        const directToDefault =
+          changeSet.commitStrategy === "DIRECT_COMMIT" && changeSet.branchStrategy === "DEFAULT";
+
+        let preview: Awaited<ReturnType<typeof computeRepoRunPreview>>;
+        try {
+          const repoOctokit = await resolveOctokit(repoFullName.split("/")[0]);
+          preview = await computeRepoRunPreview(
+            repoOctokit,
+            changeSet,
+            changeSetFiles,
+            repoFullName,
+            afterContentByFileId
+          );
+        } catch (err) {
+          // Org resolution itself failed (e.g. a GitHub App connection with
+          // no installation for this repo's org) — one repo's failure must
+          // never abort the whole batch, same invariant computeRepoRunPreview
+          // itself already guarantees for GitHub API errors.
+          preview = {
+            repoRun: failedRepoRun(directToDefault, err instanceof Error ? err.message : String(err)),
+            files: [],
+          };
+        }
         const repoRun = insertRepoRun(db, { jobId: job.id, repoFullName, ...preview.repoRun });
         for (const filePreview of preview.files) {
           insertRepoRunFile(db, { repoRunId: repoRun.id, ...filePreview });

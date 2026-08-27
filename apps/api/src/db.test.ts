@@ -665,3 +665,56 @@ describe("connections table: is_active + 2-slot migration", () => {
     ).toThrow(/UNIQUE constraint failed/);
   });
 });
+
+describe("connection_installations table", () => {
+  it("allows multiple installation rows for one connection", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('conn-1', 'user-a', 'GITHUB_APP', 'org-a', NULL, 'app-1', '10', 'enc', '2026-01-01T00:00:00.000Z')`
+    ).run();
+
+    db.prepare(
+      `INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+       VALUES ('ci-1', 'conn-1', '10', 'org-a', 'Organization', 'https://example.com/a.png')`
+    ).run();
+
+    expect(() =>
+      db!
+        .prepare(
+          `INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+           VALUES ('ci-2', 'conn-1', '11', 'org-b', 'Organization', 'https://example.com/b.png')`
+        )
+        .run()
+    ).not.toThrow();
+
+    const rows = db.prepare("SELECT * FROM connection_installations WHERE connection_id = 'conn-1'").all();
+    expect(rows).toHaveLength(2);
+  });
+
+  it("rejects a duplicate installation_id for the same connection", () => {
+    dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bulk-tool-db-test-")), "test.db");
+    db = openDatabase(dbPath);
+
+    db.prepare(
+      `INSERT INTO connections (id, user_id, type, login, host, app_id, installation_id, encrypted_token, created_at)
+       VALUES ('conn-1', 'user-a', 'GITHUB_APP', 'org-a', NULL, 'app-1', '10', 'enc', '2026-01-01T00:00:00.000Z')`
+    ).run();
+
+    db.prepare(
+      `INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+       VALUES ('ci-1', 'conn-1', '10', 'org-a', 'Organization', '')`
+    ).run();
+
+    expect(() =>
+      db!
+        .prepare(
+          `INSERT INTO connection_installations (id, connection_id, installation_id, account_login, account_type, account_avatar_url)
+           VALUES ('ci-2', 'conn-1', '10', 'org-a-renamed', 'Organization', '')`
+        )
+        .run()
+    ).toThrow(/UNIQUE constraint failed/);
+  });
+});

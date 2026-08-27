@@ -98,7 +98,7 @@ export function ConnectPage() {
 
   const [appId, setAppId] = useState("");
   const [privateKeyPem, setPrivateKeyPem] = useState("");
-  const [connectingInstallationId, setConnectingInstallationId] = useState<number | null>(null);
+  const [selectedInstallationIds, setSelectedInstallationIds] = useState<Set<number>>(new Set());
 
   const listInstallationsMutation = useMutation({
     mutationFn: () =>
@@ -110,27 +110,40 @@ export function ConnectPage() {
   });
 
   const connectAppMutation = useMutation({
-    mutationFn: (installationId: number) =>
+    mutationFn: (installationIds: number[]) =>
       apiPost<ConnectGithubAppResponse>("/api/connections/github-app", {
         appId: appId.trim(),
         privateKeyPem: privateKeyPem.trim(),
-        installationId,
+        installationIds,
         host: host.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: CONNECTIONS_QUERY_KEY });
       setShowReconnectForm(false);
+      setSelectedInstallationIds(new Set());
     },
-    onSettled: () => setConnectingInstallationId(null),
   });
 
   function handleListInstallations() {
+    setSelectedInstallationIds(new Set());
     listInstallationsMutation.mutate();
   }
 
-  function handleConnectInstallation(installationId: number) {
-    setConnectingInstallationId(installationId);
-    connectAppMutation.mutate(installationId);
+  function toggleInstallation(installationId: number) {
+    setSelectedInstallationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(installationId)) {
+        next.delete(installationId);
+      } else {
+        next.add(installationId);
+      }
+      return next;
+    });
+  }
+
+  function handleConnectSelected() {
+    if (selectedInstallationIds.size === 0) return;
+    connectAppMutation.mutate(Array.from(selectedInstallationIds));
   }
 
   function handleMethodChange(next: ConnectMethod) {
@@ -174,6 +187,11 @@ export function ConnectPage() {
             <p className="connected-card__meta">
               Connection ID: <code>{connection.id}</code>
             </p>
+            {connection.type === "GITHUB_APP" && (connection.installations?.length ?? 0) > 1 && (
+              <p className="connected-card__meta">
+                Connected to {connection.installations?.length} installations
+              </p>
+            )}
             <div className="connected-card__actions">
               {connection.active ? (
                 <Button asChild>
@@ -393,48 +411,54 @@ export function ConnectPage() {
 
           {listInstallationsMutation.data && (
             <div className="repo-section">
-              <h3>Choose an installation</h3>
+              <h3>Choose one or more installations</h3>
               {listInstallationsMutation.data.installations.length === 0 && (
                 <p className="page__loading">No installations found for this App.</p>
               )}
               {listInstallationsMutation.data.installations.length > 0 && (
-                <div className="org-grid">
-                  {listInstallationsMutation.data.installations.map((installation) => {
-                    const isConnectingThis =
-                      connectAppMutation.isPending &&
-                      connectingInstallationId === installation.installationId;
-                    return (
-                      <button
-                        key={installation.installationId}
-                        type="button"
-                        className={
-                          "org-card" + (isConnectingThis ? " org-card--connecting" : "")
-                        }
-                        disabled={connectAppMutation.isPending}
-                        onClick={() => handleConnectInstallation(installation.installationId)}
-                      >
-                        <img
-                          src={installation.accountAvatarUrl}
-                          alt=""
-                          className="org-card__avatar"
-                          width={32}
-                          height={32}
-                        />
-                        <span className="org-card__login">{installation.accountLogin}</span>
-                        <span className="badge badge--muted">{installation.accountType}</span>
-                        {isConnectingThis && (
-                          <span className="org-card__status">Connecting…</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                <>
+                  <div className="org-grid">
+                    {listInstallationsMutation.data.installations.map((installation) => {
+                      const isSelected = selectedInstallationIds.has(installation.installationId);
+                      return (
+                        <button
+                          key={installation.installationId}
+                          type="button"
+                          aria-pressed={isSelected}
+                          className={"org-card" + (isSelected ? " org-card--selected" : "")}
+                          disabled={connectAppMutation.isPending}
+                          onClick={() => toggleInstallation(installation.installationId)}
+                        >
+                          <img
+                            src={installation.accountAvatarUrl}
+                            alt=""
+                            className="org-card__avatar"
+                            width={32}
+                            height={32}
+                          />
+                          <span className="org-card__login">{installation.accountLogin}</span>
+                          <span className="badge badge--muted">{installation.accountType}</span>
+                          {isSelected && <IconCheckCircle size={15} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={selectedInstallationIds.size === 0 || connectAppMutation.isPending}
+                    onClick={handleConnectSelected}
+                  >
+                    {connectAppMutation.isPending
+                      ? "Connecting…"
+                      : `Connect ${selectedInstallationIds.size || ""} installation${selectedInstallationIds.size === 1 ? "" : "s"}`.trim()}
+                  </Button>
+                </>
               )}
               {connectAppMutation.isError && (
                 <p className="form__error" role="alert">
                   {connectAppMutation.error instanceof Error
                     ? connectAppMutation.error.message
-                    : "Failed to connect this installation."}
+                    : "Failed to connect the selected installations."}
                 </p>
               )}
             </div>

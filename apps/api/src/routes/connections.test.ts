@@ -85,10 +85,9 @@ describe("POST /connections/:id/activate", () => {
     const database = freshDb();
     const pat = replaceWithPatConnection(database, "user-a", { login: "octocat", host: null, encryptedToken: "enc" });
     replaceWithGithubAppConnection(database, "user-a", {
-      login: "my-org",
       host: null,
       appId: "app-1",
-      installationId: 99,
+      installations: [{ installationId: 99, accountLogin: "my-org", accountType: "Organization", accountAvatarUrl: "" }],
       encryptedPrivateKeyPem: "enc-pem",
     });
     const app = await buildTestApp(database);
