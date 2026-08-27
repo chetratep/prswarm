@@ -16,6 +16,10 @@ something that needs to land identically (or near-identically, via
 per-repo template values) across dozens or hundreds of repos, and you want
 to see exactly what's about to change in each one before it does.
 
+![Preview page showing a real per-repo diff, a branch-protection warning, and a rate-limiting CI change](/img/screenshots/04-preview.png)
+
+*(Demo data — no real GitHub account, repo, or credential is shown.)*
+
 ## What it is
 
 - **Self-hosted.** You run it — no hosted service, no third party ever

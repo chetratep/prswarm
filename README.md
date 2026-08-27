@@ -8,6 +8,18 @@ writes. Self-hosted, open source, MIT licensed.
 
 **[Documentation](https://chetratep.github.io/prswarm/)** · [Releases](https://github.com/chetratep/prswarm/releases) · [`CLAUDE.md`](./CLAUDE.md) (architecture reference & working conventions)
 
+## Screenshots
+
+<table>
+<tr>
+<td width="33%"><img src="website/static/img/screenshots/02-select.png" alt="Select targets — pick repos across orgs" /><br/>Select targets across orgs</td>
+<td width="33%"><img src="website/static/img/screenshots/04-preview.png" alt="Preview — real per-repo diff before anything writes" /><br/>Review a real diff per repo</td>
+<td width="33%"><img src="website/static/img/screenshots/07-results.png" alt="Results — per-repo outcome with retry" /><br/>Per-repo results, retry failures</td>
+</tr>
+</table>
+
+More in the [full workflow walkthrough](https://chetratep.github.io/prswarm/guides/workflow). Screen data above is fabricated for illustration — no real GitHub account, repo, or credential is shown.
+
 ## Install
 
 **Linux / macOS:**

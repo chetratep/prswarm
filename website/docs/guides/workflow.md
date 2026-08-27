@@ -9,12 +9,17 @@ top of the app tracks where you are — Execute and Results only become
 clickable once a job has actually started running, so you can't jump
 ahead to a step that doesn't have anything behind it yet.
 
+Screenshots below use fabricated demo data (fake orgs, repos, and a fake
+connection) — no real GitHub account, repo, or credential is shown.
+
 ## 1. Connect
 
 One credential at a time — either a personal access token or a GitHub
 App installation (see [Authentication](./authentication)). You can switch
 credentials any time via **Use different credentials** on the Connect
 page; the previous connection is replaced, not stacked.
+
+![Connect page with a personal access token field](/img/screenshots/01-connect.png)
 
 ## 2. Select
 
@@ -28,6 +33,8 @@ Discovery only ever lists repos your connected credential can actually
 reach — never GitHub's global search, which could surface repos you can
 see but can't write to.
 
+![Select targets page with repos checked across an org, and the cross-org selection summary](/img/screenshots/02-select.png)
+
 ## 3. Define
 
 - One or more files, each with its own path, write mode, and content.
@@ -38,6 +45,8 @@ see but can't write to.
 
 Going back to Define from Preview or Confirm keeps everything you
 typed — it's not a fresh form each time.
+
+![Define change form with a file entry, commit message, and pull-request landing selected](/img/screenshots/03-define.png)
 
 ## 4. Preview
 
@@ -55,12 +64,16 @@ A repo targeting direct-to-default gets a **protected — will likely
 fail** warning here if branch protection is detected, before you've
 committed to anything.
 
+![Preview page with an expanded repo and file diff, and a branch-protection warning](/img/screenshots/04-preview.png)
+
 ## 5. Confirm
 
 Shows the worst-status-per-repo counts (not a raw per-file count) and,
 for any repo going direct-to-default, an unconditional gate: type `RUN`
 to proceed. This never has a "just this once" bypass, regardless of how
 many or how few repos are in the batch.
+
+![Confirm page with the typed RUN gate for a direct-to-default push](/img/screenshots/05-confirm.png)
 
 ## 6. Execute
 
@@ -73,8 +86,12 @@ generic spinner.
 One repo's failure never stops the others — failures are isolated per
 repo.
 
+![Execute page showing live per-repo progress mid-run](/img/screenshots/06-execute.png)
+
 ## 7. Results
 
 Final per-repo outcome: a commit URL, a PR URL, or the actual error
 message. Failed repos can be retried individually or as a batch — retry
 only re-runs what actually failed, not the whole job.
+
+![Results page with a partial-failure summary, per-repo outcomes, and a retry-failed button](/img/screenshots/07-results.png)
