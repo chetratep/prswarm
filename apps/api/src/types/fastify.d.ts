@@ -1,5 +1,6 @@
 import "fastify";
 import type { SessionUser } from "../auth/currentUser.js";
+import type { Session } from "../auth/session.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -11,5 +12,9 @@ declare module "fastify" {
      * health) — none of those call resolveCurrentUser. See
      * auth/currentUser.ts for how this is consumed. */
     currentUser?: SessionUser;
+
+    /** Decrypted per-request session store, decorated by auth/session.ts's
+     * first onRequest hook (before the currentUser-resolving one above). */
+    session: Session;
   }
 }

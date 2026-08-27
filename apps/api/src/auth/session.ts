@@ -1,4 +1,4 @@
-// Registers @fastify/secure-session and the global auth gate hook.
+// Registers the cookie session plugin and the global auth gate hook.
 //
 // AUTH_ENABLED=true + no SESSION_SECRET => throw at startup (fail fast,
 // never boot half-configured). AUTH_ENABLED=false => no session data is
@@ -16,14 +16,83 @@
 // authEnabled=true requires BOTH userId AND role to be present in the
 // session, or the request is rejected (401) — never falls through to the
 // sentinel.
+//
+// Session storage is a hand-rolled AES-256-GCM-encrypted cookie (same
+// algorithm as crypto.ts's at-rest encryption, kept independent since it
+// uses its own SESSION_SECRET-derived key rather than the app's database
+// encryption key) built on @fastify/cookie for parsing/serialization only.
+// This used to be @fastify/secure-session, which pulls in sodium-native — a
+// native N-API addon whose prebuilt .node binary is resolved via a
+// dynamically computed path at runtime, invisible to Bun's bundler. That
+// meant `bun build --compile` never embedded it into the standalone
+// executable: every downloaded release binary crashed on startup with
+// "Cannot find addon", referencing the CI build machine's now-nonexistent
+// node_modules path, regardless of target platform or architecture
+// (confirmed by reproducing the linux-x64 binary — same arch as the CI
+// build host — inside a matching container: still failed, `candidates: []`).
+// @fastify/cookie has no native dependencies, so this is safe to bundle.
 import crypto from "node:crypto";
-import secureSession from "@fastify/secure-session";
-import type { FastifyInstance } from "fastify";
+import cookie from "@fastify/cookie";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { LOCAL_SENTINEL_USER, type SessionUser } from "./currentUser.js";
+
+const ALGORITHM = "aes-256-gcm";
+const IV_LENGTH_BYTES = 12;
+const AUTH_TAG_LENGTH_BYTES = 16;
+const COOKIE_NAME = "session";
 
 export interface SessionOptions {
   authEnabled: boolean;
   sessionSecret: string | undefined;
+}
+
+interface SessionData {
+  userId?: string;
+  role?: SessionUser["role"];
+}
+
+export interface Session {
+  get<K extends keyof SessionData>(key: K): SessionData[K];
+  set<K extends keyof SessionData>(key: K, value: NonNullable<SessionData[K]>): void;
+  delete(): void;
+}
+
+interface SessionInternal {
+  data: SessionData;
+  dirty: boolean;
+  cleared: boolean;
+}
+
+// Kept module-private (not a Fastify decoration) so it never needs a public
+// type surface beyond the `Session` interface requests actually see —
+// entries are dropped automatically once a request is garbage collected.
+const internalState = new WeakMap<FastifyRequest, SessionInternal>();
+
+function encryptSession(key: Buffer, data: SessionData): string {
+  const iv = crypto.randomBytes(IV_LENGTH_BYTES);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(data), "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return Buffer.concat([iv, authTag, encrypted]).toString("base64url");
+}
+
+function decryptSession(key: Buffer, value: string): SessionData {
+  try {
+    const raw = Buffer.from(value, "base64url");
+    const iv = raw.subarray(0, IV_LENGTH_BYTES);
+    const authTag = raw.subarray(IV_LENGTH_BYTES, IV_LENGTH_BYTES + AUTH_TAG_LENGTH_BYTES);
+    const encrypted = raw.subarray(IV_LENGTH_BYTES + AUTH_TAG_LENGTH_BYTES);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    const json = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+    const parsed: unknown = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? (parsed as SessionData) : {};
+  } catch {
+    // Missing key, tampered/corrupted cookie, or a cookie encrypted under a
+    // since-rotated SESSION_SECRET — all treated as "no session", never as
+    // a thrown error, since an untrusted cookie must never crash a request.
+    return {};
+  }
 }
 
 export async function registerSession(app: FastifyInstance, opts: SessionOptions): Promise<void> {
@@ -36,24 +105,60 @@ export async function registerSession(app: FastifyInstance, opts: SessionOptions
     );
   }
 
-  // The secure-session plugin always needs a 32-byte key to boot, even when
-  // auth is disabled. When auth is off no session data is ever trusted, so an
-  // ephemeral random key (regenerated per process start) is fine there.
+  // A 32-byte key is always needed to boot, even when auth is disabled. When
+  // auth is off no session data is ever trusted, so an ephemeral random key
+  // (regenerated per process start) is fine there.
   const keySource =
     sessionSecret && sessionSecret.trim().length > 0
       ? sessionSecret
       : crypto.randomBytes(32).toString("hex");
   const key = crypto.createHash("sha256").update(keySource).digest();
 
-  await app.register(secureSession, {
-    key,
-    cookieName: "session",
-    cookie: {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    },
+  await app.register(cookie);
+
+  const cookiePath = "/";
+  const cookieOptions = {
+    path: cookiePath,
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+  };
+
+  // Cast placeholder: the real value is always set synchronously in the
+  // onRequest hook below, before any handler can observe it — Fastify's
+  // decorateRequest typing just needs something assignable to `Session` up
+  // front to establish the hidden class shape.
+  app.decorateRequest("session", undefined as unknown as Session);
+
+  app.addHook("onRequest", async (request) => {
+    const raw = request.cookies[COOKIE_NAME];
+    const data = raw ? decryptSession(key, raw) : {};
+    internalState.set(request, { data, dirty: false, cleared: false });
+
+    request.session = {
+      get: (k) => internalState.get(request)!.data[k],
+      set: (k, v) => {
+        const state = internalState.get(request)!;
+        state.data = { ...state.data, [k]: v };
+        state.dirty = true;
+      },
+      delete: () => {
+        const state = internalState.get(request)!;
+        state.data = {};
+        state.cleared = true;
+      },
+    };
+  });
+
+  app.addHook("onSend", async (request, reply, payload) => {
+    const state = internalState.get(request);
+    if (!state) return payload;
+    if (state.cleared) {
+      reply.clearCookie(COOKIE_NAME, { path: cookiePath });
+    } else if (state.dirty) {
+      reply.setCookie(COOKIE_NAME, encryptSession(key, state.data), cookieOptions);
+    }
+    return payload;
   });
 
   app.decorateRequest("currentUser", undefined);
@@ -95,8 +200,8 @@ export async function registerSession(app: FastifyInstance, opts: SessionOptions
 
     if (isPublicRoute) return;
 
-    const userId = request.session.get("userId") as string | undefined;
-    const role = request.session.get("role") as SessionUser["role"] | undefined;
+    const userId = request.session.get("userId");
+    const role = request.session.get("role");
     if (!userId || !role) {
       // Auth is on, and the session is missing either key — reject
       // outright. Never fall through to the sentinel: that would grant
