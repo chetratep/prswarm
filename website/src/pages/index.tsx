@@ -29,6 +29,18 @@ function HomepageHeader() {
             View on GitHub
           </Link>
         </div>
+        <div className={styles.heroScreenshotFrame}>
+          <div className={styles.heroScreenshotChrome}>
+            <span className={styles.heroScreenshotDot} />
+            <span className={styles.heroScreenshotDot} />
+            <span className={styles.heroScreenshotDot} />
+          </div>
+          <img
+            src="/prswarm/img/screenshots/04-preview.png"
+            alt="PRSwarm's Preview step, showing a real computed per-repo diff before anything writes"
+            className={styles.heroScreenshotImg}
+          />
+        </div>
         <pre className={styles.heroCode}>
           <code>curl -fsSL https://raw.githubusercontent.com/chetratep/prswarm/main/install.sh | bash</code>
         </pre>

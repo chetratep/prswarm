@@ -12,6 +12,12 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "--filter", "@prswarm/api", "dev"],
       "port": 4000
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd website && bun run start"],
+      "port": 3000
     }
   ]
 }

@@ -25,12 +25,17 @@
   border-radius: 12px;
   border: 1px solid var(--ifm-color-emphasis-200);
   background: var(--ifm-background-surface-color);
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .featureCard:hover {
   border-color: var(--ifm-color-primary);
   transform: translateY(-2px);
+  box-shadow: 0 16px 32px -20px rgba(9, 105, 218, 0.35);
+}
+
+[data-theme='dark'] .featureCard:hover {
+  box-shadow: 0 16px 32px -20px rgba(0, 0, 0, 0.5);
 }
 
 .featureIcon {

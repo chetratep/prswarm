@@ -52,9 +52,45 @@
   gap: 0.5rem;
 }
 
+.heroScreenshotFrame {
+  margin: 3rem auto 0;
+  max-width: 960px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 30px 60px -24px rgba(9, 105, 218, 0.3), 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] .heroScreenshotFrame {
+  box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.55), 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.heroScreenshotChrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--ifm-color-emphasis-100);
+  border-bottom: 1px solid var(--ifm-color-emphasis-300);
+}
+
+.heroScreenshotDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ifm-color-emphasis-400);
+}
+
+.heroScreenshotImg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .heroCode {
   display: inline-block;
-  margin: 2rem auto 0;
+  margin: 1.75rem auto 0;
   padding: 0.75rem 1.25rem;
   border-radius: 8px;
   background: var(--ifm-color-emphasis-0);
