@@ -20,7 +20,15 @@ const config: Config = {
   projectName: 'prswarm',
   deploymentBranch: 'gh-pages',
   trailingSlash: false,
-
+  headTags: [
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'google-site-verification',
+        content: '7FsfkZGF2nA7mdl8p38F1bcNNZVO95yzQpMvW1BtYnk',
+      },
+    },
+  ],
   onBrokenLinks: 'throw',
   markdown: {
     hooks: {
