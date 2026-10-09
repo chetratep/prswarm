@@ -25,7 +25,7 @@
     "@prswarm/shared-types": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11",
     "@types/node": "^26.3.0",
     "@types/bcryptjs": "^3.0.0",
